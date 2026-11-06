@@ -5,6 +5,7 @@ export * from './errors.ts';
 export * from './gitlab/client.ts';
 export * from './ports/file-content.ts';
 export * from './ports/http.ts';
+export * from './preset.ts';
 export * from './task-controller.ts';
 export * from './task-state.ts';
 export * from './timestamp.ts';

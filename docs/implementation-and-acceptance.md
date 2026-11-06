@@ -85,7 +85,7 @@ packages/core/src/
 apps/desktop/src/main/
   ipc.ts
   token-store.ts
-  preset-token.ts
+  preset-store.ts
   task-controller.ts
   logger.ts
   platform/electron-platform.ts
@@ -186,30 +186,32 @@ apps/desktop/src/renderer/
 - 强制退出后再次启动可以清理残留临时项，不删除正式目录。
 - 日志轮转测试通过。
 
-### 阶段 7：预置 Token 和安装包
+### 阶段 7：预置配置、预置 Token 和安装包
 
 工作：
 
-- 构建脚本读取 `DSM_PRESET_TOKEN` 并生成 `resources/preset-token.txt`。
-- 无 Token 构建生成空文件。
+- 打包前手工编辑 `resources/preset.json`，格式参考 `resources/preset.example.json`。
+- 打包脚本只校验不覆盖：检查 JSON 格式、地址、项目 ID 和分支；非法值终止打包，日志不输出 Token。
+- 文件不存在时生成空 `{}`。
 - Forge 通过 `extraResource` 将文件放入安装包。
-- 首次启动复制到 `userData/token.json`，`source` 标记为 `preset`。
+- 尚无 `settings.json` 时，预置连接配置作为首启配置；用户保存后以用户配置为准。
+- 首次启动复制 Token 到 `userData/token.json`，`source` 标记为 `preset`。
 - 用户清空后写入空 Token 和 `source: "user"`。
 
 构建：
 
 ```bash
-# 在仓库根目录或桌面应用目录执行项目定义的预置脚本
-DSM_PRESET_TOKEN="$PRESET_TOKEN" pnpm run prepare:preset-token
-
-cd apps/desktop
-pnpm run package
-pnpm run make -- --arch=arm64
+# 在仓库根目录执行；先填写 resources/preset.json
+cp resources/preset.example.json resources/preset.json   # 首次使用时
+# 编辑 resources/preset.json 后执行
+pnpm run make:mac
 ```
 
 完成门槛：
 
-- 安装包资源目录中存在 `preset-token.txt`。
+- 安装包资源目录中存在 `preset.json`。
+- 首次启动后设置页显示预置的 GitLab 地址、项目 ID 和分支。
+- 保存设置后修改预置文件并重启，用户配置不被覆盖。
 - 首次启动后 `token.json` 可直接读取并包含预置 Token。
 - 用户覆盖和清空后重新启动，预置 Token 不会错误恢复。
 - 构建日志和产物日志不输出 Token。
@@ -270,7 +272,7 @@ MVP 不要求自动化覆盖：
 | ID | 场景 | 方法 | 通过标准 |
 | --- | --- | --- | --- |
 | T01 | 无 Token 冷启动 | 手工 | 应用可启动，可编辑配置和选择文件，上传入口提示配置 Token |
-| T02 | 预置 Token 首启 | 安装包 + 手工 | `token.json` 为明文，`source` 为 `preset`，应用使用该 Token |
+| T02 | 预置配置和 Token 首启 | 安装包 + 手工 | 设置页初始值来自预置文件；`token.json` 为明文，`source` 为 `preset`，应用使用该 Token |
 | T03 | 用户覆盖 Token | 手工 | 新 Token 写入后 `source` 为 `user`，重启后保持 |
 | T04 | 用户清空 Token | 手工 | 写入空 Token 和 `source: "user"`，重启不恢复预置值 |
 | T05 | 新文件上传 | 真实测试 GitLab | 远端文件出现，Commit ID 可定位，归档中使用该 Commit |
@@ -284,14 +286,14 @@ MVP 不要求自动化覆盖：
 | T13 | 解压失败清理 | 集成测试 | 不生成正式成功目录，不遗留可误用的临时目录 |
 | T14 | 日志脱敏 | 自动测试 + 手工检查 | 日志无 Token、认证头和文件内容，轮转符合限制 |
 | T15 | arm64 安装包 | 命令 + 手工 | DMG 安装启动成功，应用架构为 `arm64` |
-| T16 | 预置 Token 打包 | 资源检查 + 安装启动 | 安装包资源存在预置文件，首启后可完成验证与上传 |
+| T16 | 预置配置打包 | 资源检查 + 安装启动 | 安装包资源存在预置文件，首启后配置已填充并可完成验证与上传 |
 
 ### 3.3 发布前人工验收
 
 在干净的 Apple Silicon macOS 用户环境执行：
 
 1. 安装 DMG，确认 Gatekeeper 行为符合预期。
-2. 首次启动，确认预置 Token 被导入。
+2. 首次启动，确认预置连接配置已填充、预置 Token 被导入。
 3. 清除 Token，重启，确认不会被预置值恢复。
 4. 重新输入专用 Token，测试连接。
 5. 选择一次测试文件，完成上传、下载、解压。
@@ -307,7 +309,7 @@ MVP 不要求自动化覆盖：
 - T01–T16 全部通过，或未通过项有明确书面豁免。
 - 真实 GitLab 冒烟测试通过，且不接触生产敏感文件。
 - 安装包只包含 `arm64`，可安装、启动和完成任务。
-- 预置 Token 和明文 `token.json` 的行为符合已确认需求。
+- 预置配置、预置 Token 和明文 `token.json` 的行为符合已确认需求。
 - 日志中不存在 Token 或认证请求头。
 - 恶意 ZIP 无法写出目标目录或绕过解压限制。
 - 上传超时不自动重试，结果未知时有可执行的恢复路径。

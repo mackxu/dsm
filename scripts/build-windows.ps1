@@ -16,10 +16,6 @@ Write-Host "Running tests..."
 pnpm run test
 if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
 
-if ([string]::IsNullOrWhiteSpace($env:DSM_PRESET_TOKEN)) {
-  Write-Host "DSM_PRESET_TOKEN is not set; creating an empty preset-token.txt."
-}
-
 Write-Host "Building Windows x64 NSIS and ZIP artifacts..."
 pnpm run make:win
 if ($LASTEXITCODE -ne 0) { throw "Windows packaging failed." }

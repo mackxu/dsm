@@ -1,0 +1,6 @@
+{
+  "gitlabUrl": "https://gitlab.example.com",
+  "projectId": "group/project",
+  "branch": "main",
+  "token": "glpat-replace-me"
+}

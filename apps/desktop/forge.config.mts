@@ -11,7 +11,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     extraResource: [
-      path.resolve('../../resources/preset-token.txt'),
+      path.resolve('../../resources/preset.json'),
       path.resolve('../../resources/dsm-file-reader.cjs'),
     ],
     appBundleId: 'com.dsm-tool.desktop',

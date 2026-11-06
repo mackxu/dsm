@@ -13,6 +13,7 @@ import {
   ElectronHttpTransport,
   ElectronPlatform,
 } from './main/platform/electron-platform.ts';
+import { PresetStore } from './main/preset-store.ts';
 import { TokenStore } from './main/token-store.ts';
 import { WhitelistedFileReader } from './main/whitelisted-file-reader.ts';
 
@@ -136,12 +137,19 @@ app
 
     const platform = new ElectronPlatform();
     const paths = platform.paths();
-    const configStore = new ConfigStore(paths.userData);
-    const presetTokenPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'preset-token.txt')
-      : path.resolve(app.getAppPath(), '../../resources/preset-token.txt');
-    const tokenStore = new TokenStore(paths.userData, presetTokenPath);
     const logger = new Logger(paths.logs);
+    const presetPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'preset.json')
+      : path.resolve(app.getAppPath(), '../../resources/preset.json');
+    const presetStore = new PresetStore(presetPath, (error) => {
+      void logger.log('WARN', 'CONFIG', '预置配置文件读取失败，已忽略', {
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    });
+    const configStore = new ConfigStore(paths.userData, presetStore);
+    const tokenStore = new TokenStore(paths.userData, presetStore);
     const readerHelperPath = app.isPackaged
       ? path.join(process.resourcesPath, 'dsm-file-reader.cjs')
       : path.resolve(app.getAppPath(), '../../resources/dsm-file-reader.cjs');

@@ -28,7 +28,7 @@
 
 ### 2.1 首版保留
 
-- 安装包预置 Token，用户可替换或清除。
+- 安装包预置 GitLab 地址、项目 ID、分支和 Token，用户可替换或清除。
 - Token 可选输入、验证和明文持久化。
 - GitLab 地址、项目、分支、保存目录、超时和归档保留配置。
 - 单文件选择或拖入，默认上限 50 MiB。
@@ -56,7 +56,7 @@
 
 ```text
 启动应用
-  -> 加载 settings.json 和构建时预置配置
+  -> 加载 settings.json；不存在时使用构建时预置配置
   -> 读取 userData/token.json
   -> 无用户覆盖时导入安装包预置 Token
   -> 有 Token 时验证；没有 Token 时进入未连接状态
@@ -66,11 +66,11 @@
 
 Token 缺失不阻止应用启动、修改非敏感设置或选择本地文件，只阻止测试连接、远端检查和上传下载。Token 页面可跳过或稍后打开。
 
-安装包允许通过 Forge `extraResource` 预置真实 Token。首次启动将预置值复制到 `userData/token.json` 明文保存。用户修改后使用用户版本；用户清除后写入空值并标记为用户覆盖，不再次恢复预置值。
+安装包允许通过 Forge `extraResource` 预置 GitLab 地址、项目 ID、目标分支和真实 Token（`resources/preset.json`）。尚未保存 `settings.json` 时，预置连接配置作为首次启动的初始值；用户保存设置后以用户配置为准，新安装包不会覆盖。首次启动将预置 Token 复制到 `userData/token.json` 明文保存。用户修改后使用用户版本；用户清除后写入空值并标记为用户覆盖，不再次恢复预置值。
 
 该设计明确接受以下风险：
 
-- 任何取得安装包的人都能从资源目录提取预置 Token。
+- 任何取得安装包的人都能从资源目录提取预置连接配置和 Token。
 - 任何能读取当前系统用户目录的人都能直接查看 `token.json`。
 - 同一安装包的用户默认共享相同 GitLab 身份。
 
@@ -140,7 +140,7 @@ FAILED
 | --- | --- | --- |
 | GitLab 地址 | 服务根地址，不含 `/api/v4` | 可由安装包预置 |
 | 项目 ID | 数字 ID 或 `group/project` | 可由安装包预置 |
-| 分支 | 上传、检查和下载使用 | `main` |
+| 分支 | 上传、检查和下载使用 | 可由安装包预置，默认 `main` |
 | 保存目录 | 解压结果根目录 | 用户文档目录下的 `DSM` |
 | API 超时 | 普通请求超时 | 30 秒 |
 | 下载超时 | 归档请求超时 | 120 秒 |
@@ -218,7 +218,7 @@ apps/
         task-controller.ts
         config-store.ts
         token-store.ts
-        preset-token.ts
+        preset-store.ts
         logger.ts
         platform/
           electron-platform.ts
@@ -253,7 +253,7 @@ packages/
         http.ts
         platform.ts
 resources/
-  preset-token.txt       # 构建生成，不提交 Git
+  preset.json            # 构建生成，包含预置连接配置和 Token，不提交 Git
 tests/
   unit/
   integration/
@@ -324,7 +324,24 @@ export interface TokenRecord {
 
 ## 6. Token 与配置
 
-### 6.1 Token 预置和明文保存
+### 6.1 预置配置、Token 和明文保存
+
+安装包预置文件 `resources/preset.json` 同时承载连接配置和 Token，所有字段均可省略：
+
+```json
+{
+  "gitlabUrl": "http://gitlab.example.com",
+  "projectId": "123",
+  "branch": "main",
+  "token": "glpat-example-token"
+}
+```
+
+连接配置读取顺序：
+
+1. `userData/settings.json` 存在且有效时，以用户配置为准，忽略预置连接字段。
+2. 文件不存在或解析失败（备份为 `settings.json.bad`）时，用预置的 `gitlabUrl`、`projectId`、`branch` 作为首次启动配置；缺失字段使用产品默认值。
+3. 首次启动不写入 `settings.json`；用户保存设置后才形成用户配置，此后新安装包不会覆盖。
 
 Token 保存格式：
 
@@ -337,11 +354,11 @@ Token 保存格式：
 }
 ```
 
-读取顺序：
+Token 读取顺序：
 
 1. 读取 `userData/token.json`。`source: "user"` 时直接使用，空字符串表示用户主动清除。
-2. `source: "preset"` 时检查安装包预置文件。预置文件非空则覆盖为新的预置 Token；文件为空或不存在则保留现有预置 Token。
-3. 用户文件不存在时检查安装包预置文件；非空则写入 `token.json` 并设置 `source: "preset"`。
+2. `source: "preset"` 时检查安装包预置文件的 `token`。非空则覆盖为新的预置 Token；为空或文件不存在则保留现有预置 Token。
+3. 用户文件不存在时检查预置文件；`token` 非空则写入 `token.json` 并设置 `source: "preset"`。
 4. 没有用户 Token 或可用预置 Token 时进入未连接状态。
 
 保存规则：
@@ -357,10 +374,11 @@ Token 保存格式：
 
 构建规则：
 
-- CI 从 `DSM_PRESET_TOKEN` 生成 `resources/preset-token.txt`。
+- 开发者在打包前手工编辑 `resources/preset.json`，格式参考仓库中的 `resources/preset.example.json`；文件权限 `0600`。
+- 打包脚本只校验不生成：检查 JSON 格式、地址协议、`/api/v4` 后缀、项目 ID 和分支格式；非法值终止打包。
+- 文件不存在时创建空 `{}`，不覆盖已手工填写的内容。
 - Forge `extraResource` 将该文件放入安装包资源目录。
-- 生产包从 `process.resourcesPath/preset-token.txt` 读取；开发环境从 `app.getAppPath()/resources/preset-token.txt` 读取。
-- 没有预置需求时生成空文件，保证资源路径存在。
+- 生产包从 `process.resourcesPath/preset.json` 读取；开发环境从仓库根目录 `resources/preset.json` 读取。
 - 资源文件加入 `.gitignore`，构建日志不得输出 Token。
 
 Token 使用 GitLab `api` scope，因为上传需要 File API 写能力。管理员应使用专用、可撤销、短期有效的 Token。
@@ -563,7 +581,7 @@ pnpm start
 ```ts
 packagerConfig: {
   asar: true,
-  extraResource: ["resources/preset-token.txt"],
+  extraResource: ["resources/preset.json"],
 }
 
 makers: [
@@ -576,8 +594,8 @@ makers: [
 - Forge 只调用当前构建平台支持的 Maker。
 - DMG 在 macOS 构建机生成，NSIS 在 Windows 构建机生成。
 - 不在 Forge 配置中用 `process.platform` 手工复制平台分支。
-- 预置 Token 文件必须存在；无 Token 构建生成空文件。
-- 构建完成后检查 `preset-token.txt` 确实位于安装包资源目录。
+- 预置文件必须存在；不存在时由校验脚本生成空 `{}`，不覆盖已手工填写的内容。
+- 构建完成后检查 `preset.json` 确实位于安装包资源目录。
 
 常用命令：
 
@@ -603,7 +621,7 @@ makers: [
 | 系统 | 以所用 Electron 支持范围为准 | Windows 10/11 |
 | 安装包 | DMG + ZIP | NSIS `Setup.exe` + ZIP |
 | Token | `token.json` 明文 | `token.json` 明文 |
-| 预置 Token | `extraResource` 明文文件 | `extraResource` 明文文件 |
+| 预置配置和 Token | `extraResource` 明文文件 | `extraResource` 明文文件 |
 | 签名 | Apple Developer 签名和公证 | Authenticode |
 
 安装器必须在目标平台构建，macOS 交叉构建 Windows 安装包不作为正式发布方案。
@@ -633,7 +651,7 @@ pnpm install --frozen-lockfile
   -> 上传 out/make 安装包
 ```
 
-CI 通过 `DSM_PRESET_TOKEN` 生成预置文件。签名凭据与 Token 均为 CI Secret，不进入仓库或日志。CI 成功不能替代目标平台真机验收。
+预置文件由打包者手工填写，或在 CI 中从 Secret 写入。签名凭据与 Token 均为 CI Secret，不进入仓库或日志。CI 成功不能替代目标平台真机验收。
 
 ## 12. 现有代码迁移
 
@@ -707,7 +725,7 @@ MVP 保留一次针对专用 GitLab 测试项目的受控手工冒烟测试，�
 
 - Apple Silicon Mac 可安装并启动应用。
 - 没有 Token 时仍可启动、修改非敏感配置和选择本地文件。
-- 安装包可预置 Token，首次启动写入明文 `token.json`。
+- 安装包可预置 GitLab 地址、项目 ID、分支和 Token；首次启动使用预置配置并写入明文 `token.json`，用户保存设置后以用户配置为准。
 - 用户可替换或清除 Token；清除后预置值不会自动恢复。
 - Token 不返回 Renderer，不出现在配置、任务结果或日志中。
 - 可上传单个合法文件，并在覆盖和创建分支前确认。

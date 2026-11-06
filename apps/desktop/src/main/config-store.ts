@@ -2,16 +2,21 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import {
-  createDefaultConfig,
+  createConfigFromPreset,
   validateAppConfig,
   type AppConfig,
 } from '@dsm/core';
+
+import type { PresetStore } from './preset-store.ts';
 
 export class ConfigStore {
   private readonly settingsPath: string;
   private cached: AppConfig | null = null;
 
-  constructor(private readonly userDataDirectory: string) {
+  constructor(
+    private readonly userDataDirectory: string,
+    private readonly presetStore: PresetStore,
+  ) {
     this.settingsPath = path.join(userDataDirectory, 'settings.json');
   }
 
@@ -29,7 +34,8 @@ export class ConfigStore {
           .rename(this.settingsPath, `${this.settingsPath}.bad`)
           .catch(() => {});
       }
-      this.cached = createDefaultConfig();
+      // 用户配置不存在或已损坏时，安装包预置值作为首次使用默认值。
+      this.cached = createConfigFromPreset(await this.presetStore.load());
     }
     return structuredClone(this.cached);
   }

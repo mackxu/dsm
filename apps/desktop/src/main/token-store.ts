@@ -11,13 +11,15 @@ import {
   type TokenStatus,
 } from '@dsm/core';
 
+import type { PresetStore } from './preset-store.ts';
+
 export class TokenStore {
   private readonly tokenPath: string;
   private cached: ResolvedToken | null = null;
 
   constructor(
     private readonly userDataDirectory: string,
-    private readonly presetTokenPath: string,
+    private readonly presetStore: PresetStore,
   ) {
     this.tokenPath = path.join(userDataDirectory, 'token.json');
   }
@@ -60,10 +62,7 @@ export class TokenStore {
     }
 
     const existing = await this.readRecord();
-    const preset = await fs
-      .readFile(this.presetTokenPath, 'utf8')
-      .then((value) => value.trim())
-      .catch(() => '');
+    const preset = (await this.presetStore.load()).token;
     const resolved = resolveTokenRecord(existing, preset);
     if (
       resolved.record &&

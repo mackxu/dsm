@@ -58,29 +58,53 @@ pnpm run make:win
 pwsh -File scripts/build-windows.ps1
 ```
 
-## 预置 Token
+## 打包预置
 
-安装包可以带一个可撤销的专用 GitLab Token。构建时从环境变量生成资源文件，
-不要把 Token 提交到仓库：
+安装包可以预置 GitLab 连接配置和可撤销的专用 Token，免去用户安装后逐项填写。
+预置值手工写在 `resources/preset.json`，该文件已加入 `.gitignore`，不会被提交：
+
+```json
+{
+  "gitlabUrl": "https://gitlab.example.com",
+  "projectId": "group/project",
+  "branch": "main",
+  "token": "glpat-xxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+可以从 [resources/preset.example.json](resources/preset.example.json) 复制后修改。
+字段说明：
+
+| 字段 | 说明 |
+| --- | --- |
+| `gitlabUrl` | GitLab 根地址，不含 `/api/v4` |
+| `projectId` | 项目 ID（数字或 `group/project`） |
+| `branch` | 目标分支 |
+| `token` | GitLab Token，明文 |
+
+填好后直接打包：
 
 ```bash
-DSM_PRESET_TOKEN="$PRESET_TOKEN" pnpm run make:mac
+pnpm run make:mac    # 或 make:win
 ```
 
-Windows 构建机：
+打包前会自动执行 `pnpm run check:preset`：校验地址、项目 ID、分支和 JSON 格式，
+非法值终止打包，日志只输出设置了哪些字段，不输出 Token。文件不存在时生成空的
+`{}`，不会覆盖已经手工填写的内容。
 
-```powershell
-$env:DSM_PRESET_TOKEN = $env:DSM_TOKEN
-pnpm run make:win
-```
+没有预置需求时保持 `{}` 即可。
 
-没有预置需求时直接运行 `pnpm run prepare:preset-token` 会生成空文件。应用首次启动
-时把非空预置值复制到 `userData/token.json`。用户在界面中清除 Token 后，会写入
-空的用户 Token 记录，预置值不会再次恢复。
+预置值的行为：
 
-Token 按产品要求以明文保存在 `userData/token.json`，macOS 文件权限为 `0600`。
-任何能读取当前用户目录的人仍可读取该值；请使用专用、短期、可撤销且限制分发范围
-的 Token。
+- 尚未保存过设置时，`gitlabUrl`、`projectId`、`branch` 作为首次启动的初始配置。
+- 用户在设置页保存后，`userData/settings.json` 成为唯一来源，之后的新安装包不会
+  覆盖已保存的配置；需要恢复预置值时删除该文件。
+- 应用首次启动时把非空预置 Token 复制到 `userData/token.json`；用户在界面中清除
+  Token 后，会写入空的用户 Token 记录，预置值不会再次恢复。
+
+Token 按产品要求以明文保存在 `userData/token.json`，macOS 文件权限为 `0600`；
+`resources/preset.json` 同样以 `0600` 生成。任何能读取安装包或当前用户目录的人
+仍可读取这些值；请使用专用、短期、可撤销且限制分发范围的 Token。
 
 ## DSM 加密文件读取
 
@@ -110,7 +134,7 @@ SHA-256 和文件头。两者内容不同通常说明 Node 已拿到明文；内
 apps/desktop/    Electron Main、Preload 与 React Renderer
 packages/core/   配置、Token 规则、GitLab、任务状态与安全解压
 tests/           Vitest 单元/集成测试及 GitLab fixtures
-scripts/         构建期预置 Token 生成脚本
+scripts/         构建期预置配置校验脚本
 ```
 
 Renderer 不能读取已有 Token、访问通用文件系统或执行命令。网络请求、Token 文件和

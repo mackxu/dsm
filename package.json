@@ -12,13 +12,13 @@
     "check": "pnpm run typecheck && pnpm --filter @dsm/core typecheck && pnpm --filter desktop typecheck",
     "typecheck": "tsc --noEmit -p tests/tsconfig.json",
     "test": "vitest run",
-    "prepare:preset-token": "node scripts/prepare-preset-token.mjs",
-    "package": "pnpm run prepare:preset-token && pnpm --filter desktop package",
-    "make": "pnpm run prepare:preset-token && pnpm --filter desktop make",
-    "package:mac": "pnpm run prepare:preset-token && pnpm --filter desktop package:mac",
-    "make:mac": "pnpm run prepare:preset-token && pnpm --filter desktop make:mac",
-    "package:win": "pnpm run prepare:preset-token && pnpm --filter desktop package:win",
-    "make:win": "pnpm run prepare:preset-token && pnpm --filter desktop make:win"
+    "check:preset": "node scripts/check-preset.mjs",
+    "package": "pnpm run check:preset && pnpm --filter desktop package",
+    "make": "pnpm run check:preset && pnpm --filter desktop make",
+    "package:mac": "pnpm run check:preset && pnpm --filter desktop package:mac",
+    "make:mac": "pnpm run check:preset && pnpm --filter desktop make:mac",
+    "package:win": "pnpm run check:preset && pnpm --filter desktop package:win",
+    "make:win": "pnpm run check:preset && pnpm --filter desktop make:win"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
