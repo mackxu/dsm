@@ -270,7 +270,7 @@ export function TaskDialog({
 
 function taskMessage(task: TaskSnapshot): string {
   if (task.status === 'SUCCESS') {
-    return '上传并从目标 Commit 解压完成。首版仅确认指定 Commit 的归档中存在目标文件，不执行内容完整性验证。';
+    return '上传并从目标 Commit 解压完成，结果目录仅保留本次上传的文件。首版仅确认指定 Commit 的归档中存在目标文件，不执行内容完整性验证。';
   }
   if (task.status === 'SUCCESS_WITH_WARNING') {
     return `主流程已完成，但临时文件未完全清理。${task.warning ?? ''}`;

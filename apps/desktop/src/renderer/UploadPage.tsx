@@ -215,7 +215,7 @@ function statusText(task: TaskSnapshot): string {
     DOWNLOADING: '正在下载归档',
     EXTRACTING: '正在安全解压',
     CLEANING: '正在清理临时文件',
-    SUCCESS: '上传并从目标 Commit 解压完成',
+    SUCCESS: '上传并解压完成（仅保留本次文件）',
     SUCCESS_WITH_WARNING: '完成，但有清理警告',
     FAILED: task.failure?.message ?? '任务失败',
   };

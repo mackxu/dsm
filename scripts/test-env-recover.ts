@@ -54,6 +54,7 @@ const extraction = await extractArchive(
   {
     limits: config.archiveLimits,
     requiredRelativePath: fileName,
+    onlyRelativePath: fileName,
   },
 );
 const extractedPath = path.join(extraction.finalDirectory, fileName);

@@ -2,7 +2,8 @@
 
 面向 macOS Apple Silicon 与 Windows 10/11 x64 的 GitLab 单文件同步桌面应用。
 应用将文件上传到指定分支，通过唯一任务标记定位本次 Commit，只下载该 Commit
-的归档并安全解压到独立时间戳目录。
+的归档并安全解压到独立时间戳目录；结果目录只保留本次上传的文件，归档中的
+其他文件不会写入。
 
 产品边界和技术细节见 [技术方案](docs/product-technical-plan.md) 与
 [实施及验收清单](docs/implementation-and-acceptance.md)。
@@ -114,6 +115,36 @@ scripts/         构建期预置 Token 生成脚本
 
 Renderer 不能读取已有 Token、访问通用文件系统或执行命令。网络请求、Token 文件和
 文件操作全部位于 Electron Main。
+
+## 构建产物
+
+构建产物由 Electron Forge 与 Vite 插件自动生成，均已在 `.gitignore` 中忽略，
+可以随时删除后重新构建：
+
+| 目录 | 生成方式 | 内容 |
+| --- | --- | --- |
+| `apps/desktop/.vite/build/` | `pnpm start`、`package`、`make` | 主进程 `main.cjs` 与预加载 `preload.cjs` |
+| `apps/desktop/.vite/renderer/main_window/` | 同上 | 渲染进程 `index.html` 与 `assets/` |
+| `apps/desktop/out/` | `pnpm run package`、`pnpm run make` | 未安装应用与安装产物 |
+
+`.vite` 目录由 `@electron-forge/plugin-vite` 固定指定：主进程和预加载脚本输出到
+`.vite/build`（对应 `forge.config.mts` 中的 `build` 条目），渲染进程输出到
+`.vite/renderer/<name>`，其中 `<name>` 即 `forge.config.mts` 中的 `main_window`。
+`package.json` 的 `main` 必须指向 `.vite/build/main.cjs`。这些文件是构建结果，
+不要直接修改；请编辑 `apps/desktop/src/` 下的源码。
+
+`out/` 目录由 `electron-forge` 生成，`package` 与 `make` 的产出不同：
+
+| 命令 | 做什么 | 产物位置 | 用途 |
+| --- | --- | --- | --- |
+| `pnpm run package` | 把构建结果、依赖与 Electron 运行时组装成可执行应用目录，不生成安装包 | `out/DSM 文件同步助手-<platform>-<arch>/` | 本地验证打包结果，可直接运行 |
+| `pnpm run make` | 先隐式执行一次 `package`，再调用各 Maker 生成安装/分发产物 | 上述应用目录，以及 `out/make/` | 交付用户安装或分发 |
+
+`make` 自动包含 `package` 阶段，无需先手动执行 `package`；执行后未压缩的应用目录
+仍会保留。Maker 按平台生效：macOS 生成 DMG 与 ZIP，Windows 生成 NSIS 安装包与
+ZIP。`package:mac` / `make:mac` / `package:win` / `make:win` 只是固定了
+`--platform` 与 `--arch`，其余行为与 `package` / `make` 一致。安装产物清单见
+上文「安装与运行」。
 
 ## 使用 `.env` 做本地冒烟测试
 

@@ -56,6 +56,9 @@ describe('TaskController with fake GitLab', () => {
     expect(
       await fs.readFile(path.join(task.resultDirectory as string, 'uploaded.txt'), 'utf8'),
     ).toBe('uploaded content');
+    expect(
+      await fs.readdir(task.resultDirectory as string, { recursive: true }),
+    ).toEqual(['uploaded.txt']);
     expect(task.archivePath).toBeNull();
   });
 
@@ -364,6 +367,8 @@ class FakeGitLab implements HttpTransport {
         `project-main/${this.options.archivedFileName ?? 'uploaded.txt'}`,
         Buffer.from('uploaded content'),
       );
+      zip.addFile('project-main/other.txt', Buffer.from('other content'));
+      zip.addFile('project-main/docs/readme.md', Buffer.from('# docs'));
       const bytes = zip.toBuffer();
       return new Response(Uint8Array.from(bytes), {
         status: 200,

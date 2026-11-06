@@ -468,6 +468,7 @@ export class TaskController {
         runtime.archivePath = downloaded.archivePath;
       }
 
+      const remoteFilePath = this.current?.remotePath ?? runtime.fileName;
       const result = await extractArchive(
         runtime.archivePath,
         saveDirectory,
@@ -476,10 +477,10 @@ export class TaskController {
           limits: runtime.config.archiveLimits,
           windows: process.platform === 'win32',
           caseInsensitive: process.platform === 'win32',
-          requiredRelativePath: this.current?.remotePath ?? runtime.fileName,
+          requiredRelativePath: remoteFilePath,
+          onlyRelativePath: remoteFilePath,
         },
       );
-      const remoteFilePath = this.current?.remotePath ?? runtime.fileName;
       const expectedPath = path.resolve(
         result.finalDirectory,
         ...remoteFilePath.split('/'),

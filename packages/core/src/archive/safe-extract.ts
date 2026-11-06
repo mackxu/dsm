@@ -22,6 +22,11 @@ export interface ExtractionResult {
 export interface ExtractArchiveOptions extends PathPolicyOptions {
   limits: ArchiveLimits;
   requiredRelativePath?: string;
+  /**
+   * 只解压该相对路径的文件。其余归档条目仍会完成路径、类型和重复检查，
+   * 但不会写入磁盘，因此结果目录只保留本次上传的文件。
+   */
+  onlyRelativePath?: string;
 }
 
 interface EntryPlan {
@@ -150,7 +155,21 @@ export async function extractArchive(
         throw new Error(`归档中缺少目标文件：${options.requiredRelativePath}`);
       }
     }
+    const onlyPath = options.onlyRelativePath
+      ? normalizeArchivePath(options.onlyRelativePath, options)
+      : null;
+    if (
+      onlyPath &&
+      !plans.some((plan) => !plan.isDirectory && plan.relativePath === onlyPath)
+    ) {
+      throw new Error(`归档中缺少目标文件：${options.onlyRelativePath}`);
+    }
+
     for (const plan of plans) {
+      // 上传单文件场景只写出目标文件，避免结果目录混入仓库中的其他文件。
+      if (onlyPath && plan.relativePath !== onlyPath) {
+        continue;
+      }
       if (plan.isDirectory) {
         await fs.mkdir(plan.targetPath, { recursive: true });
         continue;
