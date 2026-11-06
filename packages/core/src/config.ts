@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { DsmError } from './errors.ts';
 
 export interface ArchiveLimits {
@@ -194,7 +196,7 @@ export function resolveSaveDirectory(
   config: AppConfig,
   documentsDirectory: string,
 ): string {
-  return config.saveDirectory ?? `${documentsDirectory}/DSM`;
+  return config.saveDirectory ?? path.join(documentsDirectory, 'DSM');
 }
 
 export function isRemoteConfigReady(config: AppConfig): boolean {
