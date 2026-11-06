@@ -1,69 +1,122 @@
-# GitLab file sync
+# DSM 文件同步助手
 
-`src/gitlab-sync.ts` uploads a file through the GitLab API, downloads the
-branch archive as ZIP, and extracts it into a timestamped directory using
-`unzipper`.
+面向 macOS Apple Silicon 与 Windows 10/11 x64 的 GitLab 单文件同步桌面应用。
+应用将文件上传到指定分支，通过唯一任务标记定位本次 Commit，只下载该 Commit
+的归档并安全解压到独立时间戳目录。
 
-## Requirements
+产品边界和技术细节见 [技术方案](docs/product-technical-plan.md) 与
+[实施及验收清单](docs/implementation-and-acceptance.md)。
 
-- Node.js 20 or later
-- pnpm
-- A GitLab token with `api`, `read_repository`, and `write_repository` scopes
-- Push permission for the configured branch. An empty repository using the
-  protected default branch usually requires Maintainer access.
+## 本地要求
 
-## Install
+- Node.js 22.13 或更高版本
+- pnpm 11.5.2
+- macOS Apple Silicon，或 Windows 10/11 x64
 
-```bash
-pnpm install
-```
-
-## Run
+## 安装与运行
 
 ```bash
-npx tsx src/gitlab-sync.ts
-```
-
-Type-check the project:
-
-```bash
+pnpm install --frozen-lockfile
 pnpm run check
+pnpm run test
+pnpm start
 ```
 
-## Defaults
+根目录命令：
 
-- Upload file: `/Users/duoduoxu/Downloads/居住证(卡)确认单.pdf`
-- Extraction base: `/Users/duoduoxu/Downloads/gitlab-test`
-- GitLab configuration: `./.env`
+| 命令 | 用途 |
+| --- | --- |
+| `pnpm run check` | 检查 `@dsm/core`、桌面应用、测试与冒烟脚本源码 |
+| `pnpm run test` | 运行 Vitest 单元和集成测试 |
+| `pnpm start` | 启动 Electron 应用 |
+| `pnpm run package` | 为当前系统生成未安装应用 |
+| `pnpm run make` | 为当前系统生成安装产物 |
+| `pnpm run package:mac` | 生成 macOS arm64 未安装应用 |
+| `pnpm run make:mac` | 生成 macOS arm64 DMG 与 ZIP |
+| `pnpm run package:win` | 生成 Windows x64 未安装应用 |
+| `pnpm run make:win` | 生成 Windows x64 NSIS 安装包与 ZIP |
 
-Each run creates `gitlab-test/<timestamp>/`. The ZIP is kept in the base
-directory with the same timestamp, so later runs do not overwrite earlier
-results.
+Windows 安装产物位于 `apps/desktop/out/make`：
 
-Options:
+- `DSM-File-Sync-<version>-x64-Setup.exe`
+- `DSM-File-Sync-<version>-x64-Setup.exe.blockmap`
+- `zip/win32/x64/DSM 文件同步助手-win32-x64-<version>.zip`
 
-```text
---file <path>
---extract-base <path>
---branch <name>
---project <id>
---env-file <path>
+正式 Windows 安装包建议在 Windows x64 构建机生成。Authenticode 证书可以通过
+环境变量提供，密码不会写入项目文件：
+
+```powershell
+$env:CSC_LINK = "C:\certs\codesign.pfx"
+$env:CSC_KEY_PASSWORD = $env:WINDOWS_CERT_PASSWORD
+pnpm run make:win
 ```
 
-For example:
+也可以在 Windows 中一次完成安装、检查、测试和打包：
+
+```powershell
+pwsh -File scripts/build-windows.ps1
+```
+
+## 预置 Token
+
+安装包可以带一个可撤销的专用 GitLab Token。构建时从环境变量生成资源文件，
+不要把 Token 提交到仓库：
 
 ```bash
-npx tsx src/gitlab-sync.ts \
-  --file /Users/duoduoxu/Downloads/居住证\(卡\)确认单.pdf \
-  --extract-base /Users/duoduoxu/Downloads/gitlab-test
+DSM_PRESET_TOKEN="$PRESET_TOKEN" pnpm run make:mac
 ```
 
-## Project structure
+Windows 构建机：
+
+```powershell
+$env:DSM_PRESET_TOKEN = $env:DSM_TOKEN
+pnpm run make:win
+```
+
+没有预置需求时直接运行 `pnpm run prepare:preset-token` 会生成空文件。应用首次启动
+时把非空预置值复制到 `userData/token.json`。用户在界面中清除 Token 后，会写入
+空的用户 Token 记录，预置值不会再次恢复。
+
+Token 按产品要求以明文保存在 `userData/token.json`，macOS 文件权限为 `0600`。
+任何能读取当前用户目录的人仍可读取该值；请使用专用、短期、可撤销且限制分发范围
+的 Token。
+
+## 目录
 
 ```text
-src/
-├── archive.ts       ZIP 安全校验与流式解压
-├── config.ts        CLI 参数和 .env 配置
-├── gitlab-api.ts    GitLab API 请求、上传和归档下载
-└── gitlab-sync.ts   程序入口
+apps/desktop/    Electron Main、Preload 与 React Renderer
+packages/core/   配置、Token 规则、GitLab、任务状态与安全解压
+tests/           Vitest 单元/集成测试及 GitLab fixtures
+scripts/         构建期预置 Token 生成脚本
 ```
+
+Renderer 不能读取已有 Token、访问通用文件系统或执行命令。网络请求、Token 文件和
+文件操作全部位于 Electron Main。
+
+## 使用 `.env` 做本地冒烟测试
+
+冒烟脚本使用 `.env` 中的四个键：`GITLAB_URL`、`GIT_TOKEN`、`PROJECT_ID` 和
+`BRANCH_NAME`。测试脚本不会输出 Token。
+
+```bash
+# 只读验证用户、项目和目标分支
+./node_modules/.bin/tsx scripts/test-env-connection.ts
+
+# 只读检查唯一测试文件名是否冲突
+DSM_SMOKE_FILE_NAME=dsm-smoke-unique.txt \
+  ./node_modules/.bin/tsx scripts/test-env-connection.ts
+
+# 明确获准产生写入后，执行上传、Commit 定位、下载和解压
+DSM_SMOKE_FILE_NAME=dsm-smoke-unique.txt \
+  ./node_modules/.bin/tsx scripts/test-env-task.ts
+
+# 不重新上传，按已有 Commit 重试下载和解压
+DSM_SMOKE_COMMIT_ID=<commit-id> \
+DSM_SMOKE_FILE_NAME=dsm-smoke-unique.txt \
+  ./node_modules/.bin/tsx scripts/test-env-recover.ts
+```
+
+GitLab 会拒绝带 `Sec-Fetch-Mode: cors` 的仓库归档请求。桌面应用使用 Node 原生
+`fetch`，对所有 GET 请求设置 `RequestInit.mode = 'same-origin'`，由 undici 生成
+`Sec-Fetch-Mode: same-origin` 请求头（直接设置同名 Header 会被 undici 忽略），
+以兼容 GitLab hotlink 防护；该请求不经过 Chromium 网络栈。

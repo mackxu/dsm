@@ -3,17 +3,28 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "start": "npx tsx src/gitlab-sync.ts",
-    "check": "tsc --noEmit"
+  "packageManager": "pnpm@11.5.2",
+  "engines": {
+    "node": ">=22.13.0"
   },
-  "dependencies": {
-    "unzipper": "^0.12.5"
+  "scripts": {
+    "start": "pnpm --filter desktop start",
+    "check": "pnpm run typecheck && pnpm --filter @dsm/core typecheck && pnpm --filter desktop typecheck",
+    "typecheck": "tsc --noEmit -p tests/tsconfig.json",
+    "test": "vitest run",
+    "prepare:preset-token": "node scripts/prepare-preset-token.mjs",
+    "package": "pnpm run prepare:preset-token && pnpm --filter desktop package",
+    "make": "pnpm run prepare:preset-token && pnpm --filter desktop make",
+    "package:mac": "pnpm run prepare:preset-token && pnpm --filter desktop package:mac",
+    "make:mac": "pnpm run prepare:preset-token && pnpm --filter desktop make:mac",
+    "package:win": "pnpm run prepare:preset-token && pnpm --filter desktop package:win",
+    "make:win": "pnpm run prepare:preset-token && pnpm --filter desktop make:win"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "@types/unzipper": "^0.10.11",
+    "adm-zip": "^0.6.1",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "6.0.3",
+    "vitest": "^4.0.18"
   }
 }
