@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 
 import type { AppConfig } from '@dsm/core';
-import type { BootstrapData, ConnectionResult } from '../shared.ts';
-import { errorMessage, unwrap } from './api.ts';
+import type {
+  BootstrapData,
+  ConnectionResult,
+  ReaderProbeResult,
+} from '../shared.ts';
+import { errorMessage, formatBytes, unwrap } from './api.ts';
 
 interface SettingsPageProps {
   bootstrap: BootstrapData;
@@ -20,7 +24,11 @@ export function SettingsPage({
   const [form, setForm] = useState<AppConfig>(bootstrap.config);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [probing, setProbing] = useState(false);
   const [connection, setConnection] = useState<ConnectionResult | null>(null);
+  const [probeResult, setProbeResult] = useState<ReaderProbeResult | null>(
+    null,
+  );
 
   useEffect(() => {
     setForm(bootstrap.config);
@@ -68,6 +76,25 @@ export function SettingsPage({
       onNotice(errorMessage(error));
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function probe(): Promise<void> {
+    setProbing(true);
+    try {
+      const result = await unwrap(
+        window.dsm.testFileReader(form.nodeReaderPath),
+      );
+      setProbeResult(result);
+      onNotice(
+        result.identical
+          ? '两种读取方式内容一致，请确认该文件是否受 DSM 加密'
+          : 'Node 读取内容与主进程不同，通常说明已解密',
+      );
+    } catch (error) {
+      onNotice(errorMessage(error));
+    } finally {
+      setProbing(false);
     }
   }
 
@@ -161,6 +188,29 @@ export function SettingsPage({
                 }
               />
             </label>
+            <label className="field wide">
+              <span>DSM 读取 Node 路径</span>
+              <div className="input-action">
+                <input
+                  value={form.nodeReaderPath ?? ''}
+                  placeholder="留空自动探测，例如 C:\Program Files\nodejs\node.exe"
+                  onChange={(event) =>
+                    update('nodeReaderPath', event.target.value || null)
+                  }
+                />
+                <button
+                  type="button"
+                  disabled={probing}
+                  onClick={() => void probe()}
+                >
+                  {probing ? '测试中…' : '选择文件测试'}
+                </button>
+              </div>
+              <small>
+                填写 DSM 进程白名单中的 node
+                绝对路径。留空时自动探测，找不到则回退主进程读取。
+              </small>
+            </label>
             <label className="toggle-field">
               <input
                 type="checkbox"
@@ -233,6 +283,43 @@ export function SettingsPage({
             </>
           )}
         </div>
+        {probeResult && (
+          <div className="info-panel">
+            <span className="eyebrow">READER TEST</span>
+            <h3>{probeResult.fileName}</h3>
+            <dl>
+              <div>
+                <dt>Node</dt>
+                <dd>
+                  {probeResult.nodeVersion} · {probeResult.nodePath}
+                </dd>
+              </div>
+              <div>
+                <dt>主进程读取</dt>
+                <dd>
+                  {formatBytes(probeResult.directSize)} ·{' '}
+                  {probeResult.directHead}
+                </dd>
+              </div>
+              <div>
+                <dt>Node 读取</dt>
+                <dd>
+                  {formatBytes(probeResult.readerSize)} ·{' '}
+                  {probeResult.readerHead}
+                </dd>
+              </div>
+              <div>
+                <dt>内容一致</dt>
+                <dd>{probeResult.identical ? '是' : '否'}</dd>
+              </div>
+            </dl>
+            <p>
+              {probeResult.identical
+                ? '两者一致：文件可能未受 DSM 管控，或该 Node 未被 DSM 解密。'
+                : '两者不同：Node 读取到了不同内容，通常说明已解密；请确认文件可正常打开。'}
+            </p>
+          </div>
+        )}
         <div className="safety-note">
           <strong>保存不是写权限证明</strong>
           <p>

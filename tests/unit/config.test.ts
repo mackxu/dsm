@@ -33,6 +33,22 @@ describe('configuration', () => {
     expect(config.saveDirectory).toBe('/tmp/dsm-results');
   });
 
+  it('normalizes the DSM reader node path', () => {
+    expect(
+      validateAppConfig({
+        ...DEFAULT_CONFIG,
+        nodeReaderPath: '  /opt/homebrew/bin/node  ',
+      }).nodeReaderPath,
+    ).toBe('/opt/homebrew/bin/node');
+    expect(
+      validateAppConfig({
+        ...DEFAULT_CONFIG,
+        nodeReaderPath: '   ',
+      }).nodeReaderPath,
+    ).toBeNull();
+    expect(validateAppConfig(DEFAULT_CONFIG).nodeReaderPath).toBeNull();
+  });
+
   it('rejects API URLs and unsupported protocols', () => {
     expect(() =>
       validateAppConfig({

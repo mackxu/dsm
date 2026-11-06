@@ -12,6 +12,11 @@ export interface AppConfig {
   projectId: string;
   branch: string;
   saveDirectory: string | null;
+  /**
+   * DSM 白名单中的 Node 可执行文件路径。为 null 时由桌面端自动探测，
+   * 探测失败则回退为主进程直接读取。
+   */
+  nodeReaderPath: string | null;
   apiTimeoutMs: number;
   downloadTimeoutMs: number;
   maxUploadBytes: number;
@@ -32,6 +37,7 @@ export const DEFAULT_CONFIG: Readonly<AppConfig> = {
   projectId: '',
   branch: 'main',
   saveDirectory: null,
+  nodeReaderPath: null,
   apiTimeoutMs: 30_000,
   downloadTimeoutMs: 120_000,
   maxUploadBytes: PRODUCT_LIMITS.maxUploadBytes,
@@ -107,6 +113,10 @@ export function validateAppConfig(
     candidate.saveDirectory === null || candidate.saveDirectory === undefined
       ? null
       : String(candidate.saveDirectory).trim() || null;
+  const nodeReaderPath =
+    candidate.nodeReaderPath === null || candidate.nodeReaderPath === undefined
+      ? null
+      : String(candidate.nodeReaderPath).trim() || null;
 
   if (options.requireRemote) {
     if (!gitlabUrl) {
@@ -140,6 +150,7 @@ export function validateAppConfig(
     projectId,
     branch: branch || 'main',
     saveDirectory,
+    nodeReaderPath,
     apiTimeoutMs: positiveInteger(
       candidate.apiTimeoutMs ?? DEFAULT_CONFIG.apiTimeoutMs,
       'API 超时',

@@ -10,6 +10,7 @@ import {
   TaskController,
   type AppConfig,
   type HttpTransport,
+  type TaskControllerOptions,
 } from '@dsm/core';
 
 const temporaryDirectories: string[] = [];
@@ -179,6 +180,69 @@ describe('TaskController with fake GitLab', () => {
     expect(task.status).toBe('SUCCESS');
     expect(fake.archiveShas).toEqual(['commit-1', 'commit-1']);
   });
+
+  it('uploads the content returned by the injected reader', async () => {
+    const root = await makeTemporaryDirectory();
+    const sourcePath = path.join(root, 'uploaded.txt');
+    const saveDirectory = path.join(root, 'results');
+    await fs.writeFile(sourcePath, 'ciphertext on disk');
+    const fake = new FakeGitLab(root);
+    let receivedFilePath = '';
+    let receivedMaxBytes = 0;
+
+    const controller = makeController(
+      root,
+      sourcePath,
+      saveDirectory,
+      fake,
+      async (filePath, options) => {
+        receivedFilePath = filePath;
+        receivedMaxBytes = options.maxBytes;
+        return Buffer.from('decrypted plaintext');
+      },
+    );
+
+    const task = await controller.start(sourcePath);
+
+    expect(task.status).toBe('SUCCESS');
+    expect(receivedFilePath).toBe(sourcePath);
+    expect(receivedMaxBytes).toBe(createDefaultConfig().maxUploadBytes);
+    expect(
+      Buffer.from(String(fake.lastUploadBody?.content), 'base64').toString(
+        'utf8',
+      ),
+    ).toBe('decrypted plaintext');
+  });
+
+  it('rejects plaintext above the upload limit after reading', async () => {
+    const root = await makeTemporaryDirectory();
+    const sourcePath = path.join(root, 'uploaded.txt');
+    const saveDirectory = path.join(root, 'results');
+    await fs.writeFile(sourcePath, 'abcd');
+    const config: AppConfig = {
+      ...createDefaultConfig(),
+      gitlabUrl: 'https://gitlab.example.com',
+      projectId: 'group/project',
+      branch: 'main',
+      saveDirectory,
+      maxUploadBytes: 4,
+    };
+    const fake = new FakeGitLab(root);
+    const controller = new TaskController({
+      transport: fake,
+      getConfig: async () => config,
+      getToken: async () => 'glpat-test',
+      getDocumentsDirectory: () => root,
+      getTemporaryDirectory: () => root,
+      readFileContent: async () => Buffer.from('abcde'),
+    });
+
+    const task = await controller.start(sourcePath);
+
+    expect(task.status).toBe('FAILED');
+    expect(task.failure?.code).toBe('FILE_TOO_LARGE');
+    expect(fake.uploadCount).toBe(0);
+  });
 });
 
 interface FakeGitLabOptions {
@@ -332,6 +396,7 @@ function makeController(
   sourcePath: string,
   saveDirectory: string,
   fake: HttpTransport,
+  readFileContent?: TaskControllerOptions['readFileContent'],
 ): TaskController {
   const config: AppConfig = {
     ...createDefaultConfig(),
@@ -346,5 +411,6 @@ function makeController(
     getToken: async () => 'glpat-test',
     getDocumentsDirectory: () => root,
     getTemporaryDirectory: () => root,
+    ...(readFileContent ? { readFileContent } : {}),
   });
 }

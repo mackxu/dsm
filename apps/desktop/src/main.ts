@@ -14,6 +14,7 @@ import {
   ElectronPlatform,
 } from './main/platform/electron-platform.ts';
 import { TokenStore } from './main/token-store.ts';
+import { WhitelistedFileReader } from './main/whitelisted-file-reader.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let taskController: TaskController | null = null;
@@ -141,6 +142,15 @@ app
       : path.resolve(app.getAppPath(), '../../resources/preset-token.txt');
     const tokenStore = new TokenStore(paths.userData, presetTokenPath);
     const logger = new Logger(paths.logs);
+    const readerHelperPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'dsm-file-reader.cjs')
+      : path.resolve(app.getAppPath(), '../../resources/dsm-file-reader.cjs');
+    const fileReader = new WhitelistedFileReader({
+      helperPath: readerHelperPath,
+      logger,
+      getConfiguredNodePath: async () =>
+        (await configStore.load()).nodeReaderPath,
+    });
     const transport = new LoggingHttpTransport(
       new ElectronHttpTransport(),
       logger,
@@ -153,6 +163,8 @@ app
       getToken: () => tokenStore.getToken(),
       getDocumentsDirectory: () => paths.documents,
       getTemporaryDirectory: () => paths.temporary,
+      readFileContent: (filePath, options) =>
+        fileReader.read(filePath, options),
       onAuthenticationFailure: (status) =>
         tokenStore.handleAuthenticationFailure(status),
       onUpdate: (snapshot) => {
@@ -190,6 +202,7 @@ app
       transport,
       platform,
       taskController,
+      fileReader,
       documentsDirectory: paths.documents,
       appVersion: app.getVersion(),
       platformLabel: platformLabel(),

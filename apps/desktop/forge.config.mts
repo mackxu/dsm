@@ -10,7 +10,10 @@ import path from 'node:path';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    extraResource: [path.resolve('../../resources/preset-token.txt')],
+    extraResource: [
+      path.resolve('../../resources/preset-token.txt'),
+      path.resolve('../../resources/dsm-file-reader.cjs'),
+    ],
     appBundleId: 'com.dsm-tool.desktop',
     ...(process.env.ELECTRON_ZIP_DIR
       ? { electronZipDir: process.env.ELECTRON_ZIP_DIR }

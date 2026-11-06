@@ -44,6 +44,19 @@ export interface ConnectionResult {
   defaultBranch: string | null;
 }
 
+export interface ReaderProbeResult {
+  fileName: string;
+  nodePath: string;
+  nodeVersion: string;
+  directSize: number;
+  readerSize: number;
+  directSha256: string;
+  readerSha256: string;
+  directHead: string;
+  readerHead: string;
+  identical: boolean;
+}
+
 export interface DesktopApi {
   bootstrap(): Promise<ApiResult<BootstrapData>>;
   chooseFile(): Promise<ApiResult<LocalFileInfo | null>>;
@@ -52,6 +65,9 @@ export interface DesktopApi {
   getPathForFile(file: File): string;
   saveSettings(config: AppConfig): Promise<ApiResult<BootstrapData>>;
   testConnection(): Promise<ApiResult<ConnectionResult>>;
+  testFileReader(
+    nodePath: string | null,
+  ): Promise<ApiResult<ReaderProbeResult>>;
   saveToken(token: string): Promise<ApiResult<TokenStatus>>;
   clearToken(): Promise<ApiResult<TokenStatus>>;
   startTask(filePath: string): Promise<ApiResult<TaskSnapshot>>;

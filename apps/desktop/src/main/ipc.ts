@@ -21,10 +21,12 @@ import type {
   BootstrapData,
   ConnectionResult,
   LocalFileInfo,
+  ReaderProbeResult,
 } from '../shared.ts';
 import type { ConfigStore } from './config-store.ts';
 import type { Logger } from './logger.ts';
 import type { TokenStore } from './token-store.ts';
+import type { WhitelistedFileReader } from './whitelisted-file-reader.ts';
 
 export interface IpcServices {
   getMainWindow: () => BrowserWindow;
@@ -34,6 +36,7 @@ export interface IpcServices {
   transport: HttpTransport;
   platform: PlatformAdapter;
   taskController: TaskController;
+  fileReader: WhitelistedFileReader;
   documentsDirectory: string;
   appVersion: string;
   platformLabel: string;
@@ -108,6 +111,19 @@ export function setupIpc(services: IpcServices): void {
       throw new DsmError('TOKEN_MISSING', '请先配置 Token', 'CONFIG', true);
     }
     return testConnection(config, token, services);
+  });
+
+  handle<ReaderProbeResult>('dsm:test-file-reader', async (_event, value) => {
+    const nodePath =
+      typeof value === 'string' && value.trim() ? value.trim() : null;
+    const result = await dialog.showOpenDialog(services.getMainWindow(), {
+      title: '选择受 DSM 管理的文件进行读取测试',
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      throw new DsmError('INVALID_REQUEST', '未选择测试文件', 'CHECK');
+    }
+    return services.fileReader.probe(result.filePaths[0], nodePath);
   });
 
   handle('dsm:save-token', async (_event, value) => {

@@ -18,6 +18,7 @@ import {
   GitLabClient,
   type UploadPreparation,
 } from './gitlab/client.ts';
+import type { FileContentReader } from './ports/file-content.ts';
 import type { HttpTransport } from './ports/http.ts';
 import {
   ACTIVE_TASK_STATUSES,
@@ -36,6 +37,11 @@ export interface TaskControllerOptions {
   getToken: () => Promise<string>;
   getDocumentsDirectory: () => string;
   getTemporaryDirectory: () => string;
+  /**
+   * 读取待上传文件的明文内容。默认使用 fs.readFile。
+   * DSM 透明加密环境由桌面端注入白名单进程读取实现。
+   */
+  readFileContent?: FileContentReader;
   onUpdate?: (snapshot: TaskSnapshot) => void;
   onAuthenticationFailure?: (status: number) => Promise<void>;
   now?: () => Date;
@@ -321,9 +327,26 @@ export class TaskController {
           'CHECK',
         );
       }
-      content = await fs.readFile(runtime.filePath);
-      if (content.length !== stat.size) {
+      content = this.options.readFileContent
+        ? await this.options.readFileContent(runtime.filePath, {
+            maxBytes: runtime.config.maxUploadBytes,
+          })
+        : await fs.readFile(runtime.filePath);
+      // 透明加密下明文长度可能与磁盘 stat 大小不同，因此不再要求
+      // content.length === stat.size；但读取期间磁盘文件不应再变化。
+      const afterRead = await fs.stat(runtime.filePath).catch(() => null);
+      if (!afterRead?.isFile() || afterRead.size !== stat.size) {
         throw new DsmError('FILE_CHANGED', '读取文件时文件发生变化', 'CHECK');
+      }
+      if (content.length === 0) {
+        throw new DsmError('FILE_INVALID', '不能上传空文件', 'CHECK');
+      }
+      if (content.length > runtime.config.maxUploadBytes) {
+        throw new DsmError(
+          'FILE_TOO_LARGE',
+          '文件超过上传大小上限',
+          'CHECK',
+        );
       }
     } catch (error) {
       return await this.fail(error, 'CHECK');

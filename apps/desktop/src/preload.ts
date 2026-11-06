@@ -12,6 +12,8 @@ const api: DesktopApi = {
   saveSettings: (config: AppConfig) =>
     ipcRenderer.invoke('dsm:save-settings', config),
   testConnection: () => ipcRenderer.invoke('dsm:test-connection'),
+  testFileReader: (nodePath: string | null) =>
+    ipcRenderer.invoke('dsm:test-file-reader', nodePath),
   saveToken: (token: string) => ipcRenderer.invoke('dsm:save-token', token),
   clearToken: () => ipcRenderer.invoke('dsm:clear-token'),
   startTask: (filePath: string) =>
