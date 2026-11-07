@@ -5,7 +5,7 @@
 <style>
   /* ——— Design plan ———
      Palette: cool graphite paper, deep teal for the main process,
-     cobalt for renderer, amber for the outside Node helper, crimson for failures.
+     cobalt for renderer, amber for the outside reader helper, crimson for failures.
      Type: IBM Plex Serif for display, IBM Plex Sans for running text,
      IBM Plex Mono for identifiers and process annotations.
      Layout: single documented column; the diagrams are the only wide elements
@@ -673,7 +673,7 @@
     <p class="lede">
       文件在上传前如何被选中、校验、解密读取，并以明文 Buffer 交给 GitLab。
       读取发生在配置、Token 与远端冲突确认之后；在 DSM 透明加密环境中，明文只经过白名单
-      Node 的 stdout 管道，不落盘。
+      Node / Python 的 stdout 管道，不落盘。
     </p>
     <dl class="meta">
       <div>
@@ -682,7 +682,7 @@
       </div>
       <div>
         <dt>读取进程</dt>
-        <dd>白名单 Node 子进程</dd>
+        <dd>白名单 Node / Python 子进程</dd>
       </div>
       <div>
         <dt>默认上限</dt>
@@ -711,13 +711,13 @@
           <div class="legend" aria-hidden="true">
             <span class="legend-item"><i class="dot renderer"></i>Renderer</span>
             <span class="legend-item"><i class="dot main"></i>Electron Main</span>
-            <span class="legend-item"><i class="dot node"></i>外部 Node</span>
+            <span class="legend-item"><i class="dot node"></i>外部 Node / Python</span>
             <span class="legend-item"><i class="dot gitlab"></i>GitLab</span>
           </div>
           <span class="figure-tag">图 1 / 3</span>
         </div>
         <div class="diagram-scroll">
-          <svg class="flow-svg" viewBox="0 0 1160 2490" role="img" aria-label="本地文件读取主流程图：选择与预检、任务启动与确认、读取前校验、白名单 Node 读取、读取后校验与上传">
+          <svg class="flow-svg" viewBox="0 0 1160 2490" role="img" aria-label="本地文件读取主流程图：选择与预检、任务启动与确认、读取前校验、白名单 Node / Python 读取、读取后校验与上传">
             <defs>
               <marker id="f1-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
                 <path class="arrow-head" d="M 0 0 L 10 5 L 0 10 Z"></path>
@@ -916,9 +916,9 @@
             <g class="node subflow">
               <rect class="box" x="190" y="1796" width="400" height="90" rx="10"></rect>
               <text class="node-title" x="210" y="1822">选择读取通道并取得明文</text>
-              <text class="node-sub" x="210" y="1843">见 图 2 / 图 3：Node 解析与子进程协议</text>
+              <text class="node-sub" x="210" y="1843">见 图 2 / 图 3：读取器解析与子进程协议</text>
               <text class="node-sub" x="210" y="1861">读取失败 → 任务 FAILED，stage = CHECK</text>
-              <text class="actor" x="570" y="1816" text-anchor="end"><tspan fill="var(--accent)">MAIN</tspan><tspan fill="var(--node-color)"> → NODE</tspan></text>
+              <text class="actor" x="570" y="1816" text-anchor="end"><tspan fill="var(--accent)">MAIN</tspan><tspan fill="var(--node-color)"> → NODE/PY</tspan></text>
             </g>
 
             <g class="annotation-block">
@@ -995,134 +995,103 @@
         <h2 id="reader-title">读取通道解析</h2>
         <p class="section-lede">
           Electron 主进程不在 DSM 白名单内，直接 <code>fs.readFile</code> 只能得到密文。
-          读取器按固定优先级寻找一个白名单 Node，并通过子进程 stdout 取回明文。
+          读取器按“优先 → 备用”顺序寻找白名单 Node 或 Python，并通过子进程 stdout 取回明文。
         </p>
       </div>
 
       <figure class="figure">
         <div class="figure-toolbar">
           <div class="legend" aria-hidden="true">
-            <span class="legend-item"><i class="dot main"></i>使用该 Node</span>
+            <span class="legend-item"><i class="dot main"></i>使用读取器</span>
             <span class="legend-item"><i class="dot danger"></i>直接失败</span>
           </div>
           <span class="figure-tag">图 2 / 3</span>
         </div>
         <div class="diagram-scroll">
-          <svg class="flow-svg compact" viewBox="0 0 1160 740" role="img" aria-label="读取通道解析决策图：显式配置路径优先，其次环境变量，最后自动探测；显式配置或环境变量不可执行、以及自动探测失败时，均直接失败，不回退主进程直读">
+          <svg class="flow-svg compact" viewBox="0 0 1160 840" role="img" aria-label="读取器优先与回退决策图：优先读取器显式路径可执行时直接使用；显式配置不可执行直接失败；自动探测不到时才尝试另一个读取器">
             <defs>
               <marker id="f2-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
                 <path class="arrow-head" d="M 0 0 L 10 5 L 0 10 Z"></path>
               </marker>
             </defs>
 
-            <text class="mini-heading" x="40" y="24">按优先级依次尝试 · 命中即停止</text>
-
-            <!-- priority 01 -->
-            <text class="priority" x="100" y="86" text-anchor="middle">01</text>
-
-            <g class="diamond">
-              <polygon points="350,36 500,80 350,124 200,80"></polygon>
-              <text class="node-title" x="350" y="76" text-anchor="middle">配置了读取 Node？</text>
-              <text class="node-sub mono" x="350" y="98" text-anchor="middle">config.nodeReaderPath</text>
+            <g class="node">
+              <rect class="box" x="180" y="24" width="360" height="70" rx="10"></rect>
+              <text class="node-title" x="200" y="52">优先读取器</text>
+              <text class="node-sub" x="200" y="74">设置页选择 Node 或 Python · 默认 Node</text>
             </g>
 
             <g class="diamond">
-              <polygon points="750,36 860,80 750,124 640,80"></polygon>
-              <text class="node-title" x="750" y="76" text-anchor="middle">可执行？</text>
-              <text class="node-sub mono" x="750" y="98" text-anchor="middle">node -p … · 5 s</text>
+              <polygon points="360,140 540,190 360,240 180,190"></polygon>
+              <text class="node-title" x="360" y="183" text-anchor="middle">显式配置了路径？</text>
+              <text class="node-sub" x="360" y="207" text-anchor="middle">设置页或环境变量</text>
+            </g>
+
+            <g class="node">
+              <rect class="box" x="620" y="130" width="500" height="120" rx="10"></rect>
+              <text class="node-title" x="640" y="158">显式配置的处理</text>
+              <text class="node-sub" x="640" y="182">可执行 → 使用（source = config / environment）</text>
+              <text class="node-sub" x="640" y="200">不可执行 → READER_UNAVAILABLE</text>
+              <text class="node-sub" x="640" y="218">显式配置失败不会回退</text>
+            </g>
+
+            <g class="diamond">
+              <polygon points="360,290 540,340 360,390 180,340"></polygon>
+              <text class="node-title" x="360" y="333" text-anchor="middle">自动探测到优先读取器？</text>
+              <text class="node-sub" x="360" y="357" text-anchor="middle">PATH / 安装目录 / nvm / pyenv</text>
             </g>
 
             <g class="node accent">
-              <rect class="box" x="920" y="38" width="220" height="84" rx="10"></rect>
-              <text class="node-title" x="940" y="64">使用该 Node</text>
-              <text class="node-sub mono" x="940" y="85">source = config</text>
-              <text class="node-sub" x="940" y="103">进入子进程读取</text>
+              <rect class="box" x="620" y="290" width="500" height="100" rx="10"></rect>
+              <text class="node-title" x="640" y="318">使用优先读取器</text>
+              <text class="node-sub mono" x="640" y="340">source = auto</text>
+              <text class="node-sub" x="640" y="358">进入子进程读取</text>
             </g>
 
-            <g class="branch error">
-              <rect x="610" y="150" width="280" height="64" rx="10"></rect>
-              <text class="b-title" x="630" y="176">READER_UNAVAILABLE</text>
-              <text class="b-sub" x="630" y="196">显式配置不可执行：直接失败，不回退</text>
-            </g>
-
-            <path class="edge" d="M 500 80 H 640" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="570" y="71" text-anchor="middle">是</text>
-            <path class="edge" d="M 860 80 H 920" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="890" y="71" text-anchor="middle">是</text>
-            <path class="edge" d="M 750 124 V 150" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="762" y="142">否</text>
-            <path class="edge" d="M 350 124 V 260" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="362" y="198">否</text>
-
-            <!-- priority 02 -->
-            <text class="priority" x="100" y="310" text-anchor="middle">02</text>
-
-            <g class="diamond">
-              <polygon points="350,260 500,304 350,348 200,304"></polygon>
-              <text class="node-title" x="350" y="300" text-anchor="middle">设置了 DSM_NODE_PATH？</text>
-              <text class="node-sub mono" x="350" y="322" text-anchor="middle">环境变量</text>
+            <g class="node">
+              <rect class="box" x="160" y="450" width="400" height="90" rx="10"></rect>
+              <text class="node-title" x="180" y="478">尝试另一个读取器</text>
+              <text class="node-sub" x="180" y="500">只有自动探测失败才会走到这里</text>
             </g>
 
             <g class="diamond">
-              <polygon points="750,260 860,304 750,348 640,304"></polygon>
-              <text class="node-title" x="750" y="300" text-anchor="middle">可执行？</text>
-              <text class="node-sub mono" x="750" y="322" text-anchor="middle">node -p … · 5 s</text>
+              <polygon points="360,600 540,650 360,700 180,650"></polygon>
+              <text class="node-title" x="360" y="643" text-anchor="middle">另一个读取器可用？</text>
+              <text class="node-sub" x="360" y="667" text-anchor="middle">Node ↔ Python</text>
             </g>
 
             <g class="node accent">
-              <rect class="box" x="920" y="262" width="220" height="84" rx="10"></rect>
-              <text class="node-title" x="940" y="288">使用该 Node</text>
-              <text class="node-sub mono" x="940" y="309">source = environment</text>
-              <text class="node-sub" x="940" y="327">进入子进程读取</text>
+              <rect class="box" x="620" y="600" width="500" height="100" rx="10"></rect>
+              <text class="node-title" x="640" y="628">使用备用读取器</text>
+              <text class="node-sub" x="640" y="650">INFO 记录实际路径、版本、来源</text>
+              <text class="node-sub" x="640" y="668">进入子进程读取</text>
             </g>
 
             <g class="branch error">
-              <rect x="610" y="374" width="280" height="64" rx="10"></rect>
-              <text class="b-title" x="630" y="400">READER_UNAVAILABLE</text>
-              <text class="b-sub" x="630" y="420">环境变量不可执行：直接失败，不回退</text>
+              <rect x="110" y="740" width="500" height="70" rx="10"></rect>
+              <text class="b-title" x="130" y="768">READER_UNAVAILABLE</text>
+              <text class="b-sub" x="130" y="790">Node 和 Python 都不可用</text>
             </g>
 
-            <path class="edge" d="M 500 304 H 640" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="570" y="295" text-anchor="middle">是</text>
-            <path class="edge" d="M 860 304 H 920" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="890" y="295" text-anchor="middle">是</text>
-            <path class="edge" d="M 750 348 V 374" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="762" y="366">否</text>
-            <path class="edge" d="M 350 348 V 484" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="362" y="420">否</text>
-
-            <!-- priority 03 -->
-            <text class="priority" x="100" y="534" text-anchor="middle">03</text>
-
-            <g class="diamond">
-              <polygon points="350,484 510,528 350,572 190,528"></polygon>
-              <text class="node-title" x="350" y="524" text-anchor="middle">自动探测到 Node？</text>
-              <text class="node-sub mono" x="350" y="546" text-anchor="middle">PATH · 安装目录 · nvm</text>
-            </g>
-
-            <g class="node accent">
-              <rect class="box" x="920" y="486" width="220" height="84" rx="10"></rect>
-              <text class="node-title" x="940" y="512">使用该 Node</text>
-              <text class="node-sub mono" x="940" y="533">source = auto</text>
-              <text class="node-sub" x="940" y="551">进入子进程读取</text>
-            </g>
-
-            <g class="branch error">
-              <rect x="110" y="610" width="480" height="90" rx="10"></rect>
-              <text class="b-title" x="130" y="638">READER_UNAVAILABLE</text>
-              <text class="b-sub" x="130" y="660">自动探测没有找到可执行的 Node</text>
-              <text class="b-sub" x="130" y="678">直接失败，不回退主进程直读</text>
-            </g>
-
-            <path class="edge" d="M 510 528 H 920" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="600" y="519">是</text>
-            <path class="edge" d="M 350 572 V 610" marker-end="url(#f2-arrow)"></path>
-            <text class="edge-label" x="362" y="596">否</text>
+            <path class="edge" d="M 360 94 V 140" marker-end="url(#f2-arrow)"></path>
+            <path class="edge" d="M 540 190 H 620" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="580" y="181" text-anchor="middle">是</text>
+            <path class="edge" d="M 360 240 V 290" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="372" y="270">否</text>
+            <path class="edge" d="M 540 340 H 620" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="580" y="331" text-anchor="middle">是</text>
+            <path class="edge" d="M 360 390 V 450" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="372" y="425">否</text>
+            <path class="edge" d="M 360 540 V 600" marker-end="url(#f2-arrow)"></path>
+            <path class="edge" d="M 540 650 H 620" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="580" y="641" text-anchor="middle">是</text>
+            <path class="edge" d="M 360 700 V 740" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="372" y="725">否</text>
           </svg>
         </div>
         <figcaption>
-          图 2 · 读取通道的解析优先级。显式配置或环境变量不可执行，以及自动探测失败时，
-          都直接失败；不会回退主进程直读。
+          图 2 · 优先读取器与回退链。优先读取器有显式路径时只尝试它；自动探测失败才尝试
+          另一个。显式配置错误、读取失败和 helper 缺失都不会回退。
         </figcaption>
       </figure>
 
@@ -1130,34 +1099,41 @@
         <li>
           <div>
             <strong>解析顺序</strong>
-            设置页的 <code>config.nodeReaderPath</code> → 环境变量 <code>DSM_NODE_PATH</code> →
-            自动探测。解析成功后缓存结果；版本探测使用 <code>node -p process.versions.node</code>，
-            超时 5 秒。
+            设置页对应读取器路径 → 环境变量 <code>DSM_NODE_PATH</code> /
+            <code>DSM_PYTHON_PATH</code> → 自动探测。解析成功后缓存结果；版本探测超时 5 秒。
           </div>
         </li>
         <li>
           <div>
-            <strong>读取通道不可用即失败</strong>
-            显式配置或环境变量不可执行，或自动探测找不到 Node 时，抛出
-            <code>READER_UNAVAILABLE</code>，任务在读取前失败。应用不会回退主进程直读，
-            从而避免静默读取密文并上传。
+            <strong>显式配置不回退</strong>
+            显式配置或环境变量不可执行时抛出 <code>READER_UNAVAILABLE</code>，不会尝试另一个
+            读取器。helper 缺失、spawn 失败、读取失败和超时同样不会回退。
           </div>
         </li>
         <li>
           <div>
             <strong>自动探测候选</strong>
-            系统 <code>PATH</code> 中的每个目录；Windows 额外检查 Program Files、
-            <code>LOCALAPPDATA</code> 与 <code>APPDATA</code> 下的 Node 安装位置；macOS / Linux
-            额外检查 <code>/opt/homebrew/bin</code>、<code>/usr/local/bin</code>、
-            <code>/usr/bin</code> 以及 <code>~/.nvm/versions/node/*/bin</code>。
+            Node：系统 <code>PATH</code>、Windows 的 Program Files /
+            <code>LOCALAPPDATA</code> / <code>APPDATA</code>、macOS 的 Homebrew 与
+            <code>~/.nvm/versions/node/*/bin</code>。Python：<code>PATH</code>、Homebrew、
+            framework、Command Line Tools、pyenv versions 与常见 conda 目录；自动探测排除
+            Windows Store 别名和 macOS 的 <code>/usr/bin/python3</code> 桩。
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>回退记录</strong>
+            只有优先读取器未配置且自动探测完全失败时才尝试另一个；成功后按 INFO 记录实际
+            读取器、路径、版本和来源。两个都不可用时抛 <code>READER_UNAVAILABLE</code>，消息
+            同时列出 Node 和 Python。
           </div>
         </li>
         <li>
           <div>
             <strong>用读取测试确认白名单</strong>
-            设置页的「选择文件测试」会分别用主进程和 Node 读取同一文件，显示大小、SHA-256
-            与文件头。两者内容不同通常说明 Node 已拿到明文；内容相同则说明文件未受控，或该
-            Node 不在 DSM 白名单中。
+            设置页的「选择文件测试」会分别用主进程和实际读取器读取同一文件，显示大小、SHA-256
+            与文件头。两者内容不同通常说明读取器已拿到明文；内容相同则说明文件未受控，或该
+            解释器不在 DSM 白名单中。
           </div>
         </li>
       </ol>
@@ -1168,7 +1144,7 @@
         <p class="kicker">Protocol</p>
         <h2 id="protocol-title">子进程读取协议</h2>
         <p class="section-lede">
-          外部 Node 只做一件事：把文件原始字节写到 stdout。日志和错误全部走 stderr，
+          外部读取进程（Node / Python）只做一件事：把文件原始字节写到 stdout。日志和错误全部走 stderr，
           避免污染二进制内容；主进程负责超时、超限和退出码处理。
         </p>
       </div>
@@ -1177,13 +1153,13 @@
         <div class="figure-toolbar">
           <div class="legend" aria-hidden="true">
             <span class="legend-item"><i class="dot main"></i>Electron Main</span>
-            <span class="legend-item"><i class="dot node"></i>外部 Node</span>
+            <span class="legend-item"><i class="dot node"></i>外部 Node / Python</span>
             <span class="legend-item"><i class="dot gitlab"></i>受控文件</span>
           </div>
           <span class="figure-tag">图 3 / 3</span>
         </div>
         <div class="diagram-scroll">
-          <svg class="flow-svg compact" viewBox="0 0 1160 660" role="img" aria-label="主进程与外部 Node 读取代理之间的时序图：spawn、读取、stdout 返回字节、stderr 返回错误、退出码与超时处理">
+          <svg class="flow-svg compact" viewBox="0 0 1160 660" role="img" aria-label="主进程与外部 Node / Python 读取代理之间的时序图：spawn、读取、stdout 返回字节、stderr 返回错误、退出码与超时处理">
             <defs>
               <marker id="f3-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
                 <path class="arrow-head" d="M 0 0 L 10 5 L 0 10 Z"></path>
@@ -1200,8 +1176,8 @@
             </g>
             <g class="participant">
               <rect class="box" x="520" y="20" width="260" height="68" rx="10"></rect>
-              <text class="node-title" x="650" y="48" text-anchor="middle">外部 Node 进程</text>
-              <text class="node-sub mono" x="650" y="69" text-anchor="middle">dsm-file-reader.cjs</text>
+              <text class="node-title" x="650" y="48" text-anchor="middle">外部 Node / Python 进程</text>
+              <text class="node-sub mono" x="650" y="69" text-anchor="middle">dsm-file-reader.cjs / .py</text>
             </g>
             <g class="participant">
               <rect class="box" x="890" y="20" width="220" height="68" rx="10"></rect>
@@ -1214,7 +1190,7 @@
             <line class="lifeline" x1="1000" y1="88" x2="1000" y2="630"></line>
 
             <path class="edge" d="M 260 130 H 650" marker-end="url(#f3-arrow)"></path>
-            <text class="msg-label" x="455" y="120" text-anchor="middle">spawn(node, [helper, filePath, maxBytes])</text>
+            <text class="msg-label" x="455" y="120" text-anchor="middle">spawn(reader, [helper, filePath, maxBytes])</text>
             <text class="msg-sub" x="455" y="148" text-anchor="middle">shell = false · 最小环境变量 · windowsHide</text>
 
             <path class="edge" d="M 650 200 H 1000" marker-end="url(#f3-arrow)"></path>
@@ -1348,17 +1324,17 @@
           </p>
         </article>
         <article class="constraint">
-          <h3>显式配置优先于可用性</h3>
+          <h3>显式配置不做回退</h3>
           <p>
-            用户配置了白名单 Node 却不可执行时，任务直接失败，不会回退到主进程直读。
-            这是为了避免在不知情的情况下上传密文。
+            用户配置了白名单 Node / Python 却不可执行时，任务直接失败，不会尝试另一个读取器。
+            这是为了避免掩盖配置错误。
           </p>
         </article>
         <article class="constraint">
-          <h3>自动探测失败也直接失败</h3>
+          <h3>自动探测失败才回退</h3>
           <p>
-            未配置且自动探测不到 Node 时，任务在读取前失败。应用不会回退主进程直读，
-            避免在 DSM 环境中读到密文后继续上传；设置页的读取测试用于确认白名单是否生效。
+            只有优先读取器未配置且自动探测完全失败时，才尝试另一个读取器；成功后按 INFO 记录
+            实际路径、版本和来源。两个都不可用时才抛 <code>READER_UNAVAILABLE</code>。
           </p>
         </article>
       </div>
@@ -1371,8 +1347,13 @@
         </li>
         <li>
           <code>apps/desktop/src/main/ipc.ts</code>
-          <span>IPC 来源校验、本地文件预检</span>
-          <span class="lines">63–78, 244–267</span>
+          <span>IPC 来源校验、本地文件预检、探针参数</span>
+          <span class="lines">88–130, 246–269</span>
+        </li>
+        <li>
+          <code>packages/core/src/config.ts</code>
+          <span>读取器字段、默认值与归一化</span>
+          <span class="lines">11–40, 93–125</span>
         </li>
         <li>
           <code>packages/core/src/task-controller.ts</code>
@@ -1381,18 +1362,38 @@
         </li>
         <li>
           <code>apps/desktop/src/main/whitelisted-file-reader.ts</code>
-          <span>读取通道选择、子进程超时与错误映射</span>
-          <span class="lines">40–67, 135–226</span>
+          <span>解析 → 回退链 → spawn、超时与错误映射</span>
+          <span class="lines">43–70, 88–270</span>
         </li>
         <li>
-          <code>apps/desktop/src/main/node-path.ts</code>
-          <span>Node 解析优先级与自动探测候选</span>
-          <span class="lines">30–53, 85–130</span>
+          <code>apps/desktop/src/main/reader-chain.ts</code>
+          <span>优先/备用读取器顺序</span>
+          <span class="lines">20–50</span>
+        </li>
+        <li>
+          <code>apps/desktop/src/main/reader-executable.ts</code>
+          <span>解释器解析、版本探测、缓存</span>
+          <span class="lines">47–210</span>
+        </li>
+        <li>
+          <code>apps/desktop/src/main/python-path.ts</code>
+          <span>Python 候选与版本校验</span>
+          <span class="lines">38–180</span>
+        </li>
+        <li>
+          <code>apps/desktop/src/renderer/SettingsPage.tsx</code>
+          <span>优先读取器、路径输入与探针结果</span>
+          <span class="lines">94–130, 205–270</span>
         </li>
         <li>
           <code>resources/dsm-file-reader.cjs</code>
-          <span>stdout 字节流、stderr 错误 JSON、退出码</span>
+          <span>Node stdout 字节流、stderr JSON、退出码</span>
           <span class="lines">18–104</span>
+        </li>
+        <li>
+          <code>resources/dsm-file-reader.py</code>
+          <span>Python stdout 字节流、stderr JSON、退出码</span>
+          <span class="lines">47–110</span>
         </li>
       </ul>
     </section>

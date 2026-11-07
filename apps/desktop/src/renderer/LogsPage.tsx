@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { LogEntry, LogPage } from '../shared.ts';
 import { errorMessage, unwrap } from './api.ts';
@@ -12,11 +12,13 @@ export function LogsPage({ onNotice }: LogsPageProps): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [activeQuery, setActiveQuery] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
 
   async function refresh(search = activeQuery): Promise<void> {
     setLoading(true);
     try {
       setPage(await unwrap(window.dsm.getLogs(0, 100, search)));
+      listRef.current?.scrollTo(0, 0);
     } catch (error) {
       onNotice(errorMessage(error));
     } finally {
@@ -77,12 +79,12 @@ export function LogsPage({ onNotice }: LogsPageProps): React.JSX.Element {
   }
 
   return (
-    <section className="logs-panel">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">AUDIT TRAIL</span>
-          <h2>最近运行记录</h2>
-        </div>
+    <section className="logs-page">
+      <div className="logs-header">
+        <p className="lead">
+          日志保留最近 7 天，总量不超过 5
+          MiB。日志使用纯文本保存，支持全文搜索；Token、认证头和上传文件内容不会写入日志。
+        </p>
         <div className="action-row compact-row">
           <button
             type="button"
@@ -107,10 +109,6 @@ export function LogsPage({ onNotice }: LogsPageProps): React.JSX.Element {
           </button>
         </div>
       </div>
-      <p className="lead">
-        日志保留最近 7 天，总量不超过 5
-        MiB。日志使用纯文本保存，支持全文搜索；Token、认证头和上传文件内容不会写入日志。
-      </p>
       <form className="log-search" onSubmit={search}>
         <input
           value={query}
@@ -132,10 +130,14 @@ export function LogsPage({ onNotice }: LogsPageProps): React.JSX.Element {
           搜索“{activeQuery}”：找到 {page?.total ?? 0} 条日志
         </p>
       )}
-      <div className="log-plain-text" aria-label="运行日志">
+      <div className="log-plain-text" aria-label="运行日志" ref={listRef}>
         {page?.entries.length ? (
           page.entries.map((entry, index) => (
-            <LogPlainTextLine key={`${entry.time}-${index}`} entry={entry} />
+            <LogPlainTextLine
+              key={`${entry.time}-${index}`}
+              entry={entry}
+              query={activeQuery}
+            />
           ))
         ) : (
           <div className="empty-state">
@@ -174,7 +176,13 @@ function formatLogLineForCopy(entry: LogEntry): string {
   }${metadata}`;
 }
 
-function LogPlainTextLine({ entry }: { entry: LogEntry }): React.JSX.Element {
+function LogPlainTextLine({
+  entry,
+  query,
+}: {
+  entry: LogEntry;
+  query: string;
+}): React.JSX.Element {
   const values = {
     ...(entry.taskId ? { taskId: entry.taskId } : {}),
     ...(entry.commitId ? { commitId: entry.commitId } : {}),
@@ -182,16 +190,39 @@ function LogPlainTextLine({ entry }: { entry: LogEntry }): React.JSX.Element {
   };
   const metadata =
     Object.keys(values).length > 0 ? ` | ${JSON.stringify(values)}` : '';
+  const header = `${new Date(entry.time).toLocaleString()} [${entry.level}] [${
+    entry.stage ?? 'LOG'
+  }]`;
   return (
     <div className="log-plain-line">
-      <strong>
-        {new Date(entry.time).toLocaleString()} [{entry.level}] [
-        {entry.stage ?? 'LOG'}]
-      </strong>{' '}
-      <span>{singleLine(entry.message)}</span>
-      {metadata && <span>{metadata}</span>}
+      <strong>{highlightText(header, query)}</strong>{' '}
+      <span>{highlightText(singleLine(entry.message), query)}</span>
+      {metadata && <span>{highlightText(metadata, query)}</span>}
     </div>
   );
+}
+
+function highlightText(text: string, query: string): React.ReactNode {
+  const keyword = query.trim();
+  if (!keyword) return text;
+
+  const pattern = new RegExp(`(${escapeRegExp(keyword)})`, 'gi');
+  const parts = text.split(pattern);
+  if (parts.length === 1) return text;
+
+  return parts.map((part, index) =>
+    index % 2 === 1 ? (
+      <mark key={index} className="log-highlight">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function singleLine(value: string): string {

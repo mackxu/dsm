@@ -6,7 +6,7 @@ import { errorMessage, unwrap } from './api.ts';
 interface TaskDialogProps {
   task: TaskSnapshot;
   onTask: (task: TaskSnapshot) => void;
-  onOpenToken: () => void;
+  onOpenSettings: () => void;
   onNotice: (message: string | null) => void;
 }
 
@@ -41,7 +41,7 @@ const ACTIVE_STATUSES = new Set<TaskSnapshot['status']>([
 export function TaskDialog({
   task,
   onTask,
-  onOpenToken,
+  onOpenSettings,
   onNotice,
 }: TaskDialogProps): React.JSX.Element {
   const [busy, setBusy] = useState(false);
@@ -216,7 +216,7 @@ export function TaskDialog({
               className="primary-button"
               onClick={() => {
                 setDismissed(true);
-                onOpenToken();
+                onOpenSettings();
               }}
             >
               配置 Token

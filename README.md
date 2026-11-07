@@ -109,25 +109,34 @@ Token 按产品要求以明文保存在 `userData/token.json`，macOS 文件权�
 ## DSM 加密文件读取
 
 在部署了 DSM（数据防泄漏/透明加密）的机器上，Electron 主进程不在进程白名单中，
-`fs.readFile` 只能读到密文。应用支持由白名单中的 Node 读取文件，再通过 stdout
-管道把明文交给主进程上传，内容不落盘，避免被重新加密或留下明文临时文件。
+`fs.readFile` 只能读到密文。应用支持由白名单中的 Node 或 Python 读取文件，再通过
+stdout 管道把明文交给主进程上传，内容不落盘，避免被重新加密或留下明文临时文件。
 
-读取 Node 的解析优先级：
+设置页提供「Node」「Python」两个优先读取器选项，默认 Node。优先读取器的解析顺序：
 
-1. 设置页「DSM 读取 Node 路径」；
-2. 环境变量 `DSM_NODE_PATH`；
-3. 自动探测系统 PATH、常见安装目录和 nvm 目录。
+1. 设置页中对应读取器的路径；
+2. 环境变量 `DSM_NODE_PATH` / `DSM_PYTHON_PATH`；
+3. 自动探测系统 PATH、常见安装目录和 nvm / pyenv / conda 目录。
 
-显式配置的路径不可执行，或未配置且自动探测失败时，任务会在读取前直接失败，
-不会回退为主进程直读，也不会静默上传密文。请安装 Node，或在设置页填写白名单
-Node 的绝对路径。
+只有优先读取器没有显式配置且自动探测完全找不到时，才会自动尝试另一个读取器，
+并按 INFO 记录实际读取器、路径、版本和来源。显式配置的路径不可执行、helper
+缺失、读取失败或超时都会直接失败，不会回退。
 
-设置页的「选择文件测试」会分别用主进程和 Node 读取同一个文件，显示大小、
-SHA-256 和文件头。两者内容不同通常说明 Node 已拿到明文；内容相同则说明文件
-未受控，或该 Node 不在 DSM 白名单中。
+Python 读取使用：
 
-构建时 `resources/dsm-file-reader.cjs` 会作为 `extraResource` 复制到应用资源
-目录，不进入 asar，确保外部 Node 可以直接执行。
+```text
+python -I -S -B -u dsm-file-reader.py <filePath> <maxBytes>
+```
+
+建议使用标准 CPython 3.8+，填写真实的 `python.exe` / `python3` 路径，不建议使用
+`py.exe` 启动器或 Microsoft Store 的 WindowsApps 别名。
+
+设置页的「选择文件测试」会分别用主进程和当前读取器读取同一个文件，显示大小、
+SHA-256 和文件头。两者内容不同通常说明读取器已拿到明文；内容相同则说明文件
+未受控，或该读取器不在 DSM 白名单中。
+
+构建时 `resources/dsm-file-reader.cjs` 和 `resources/dsm-file-reader.py` 会作为
+`extraResource` 复制到应用资源目录，不进入 asar，确保外部解释器可以直接执行。
 
 ## 目录
 

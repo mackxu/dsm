@@ -3,14 +3,17 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import {
+  ACTIVE_TASK_STATUSES,
   DsmError,
   GitLabClient,
   isRemoteConfigReady,
+  normalizeReaderSelection,
   resolveSaveDirectory,
   validateAppConfig,
   type AppConfig,
   type HttpTransport,
   type PlatformAdapter,
+  type ReaderSelection,
   type RecoveryAction,
   type TaskController,
 } from '@dsm/core';
@@ -22,6 +25,7 @@ import type {
   ConnectionResult,
   LocalFileInfo,
   ReaderProbeResult,
+  SaveSettingsResult,
 } from '../shared.ts';
 import type { ConfigStore } from './config-store.ts';
 import type { Logger } from './logger.ts';
@@ -85,22 +89,56 @@ export function setupIpc(services: IpcServices): void {
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
-  handle<BootstrapData>('dsm:save-settings', async (_event, value) => {
-    const candidate = validateAppConfig(value);
-    const token = await services.tokenStore.getToken();
-    if (token) {
-      if (!isRemoteConfigReady(candidate)) {
+  handle<SaveSettingsResult>(
+    'dsm:save-settings',
+    async (_event, value, tokenValue) => {
+      const candidate = validateAppConfig(value);
+      const newToken = parseOptionalToken(tokenValue);
+
+      const existing = await services.configStore.load();
+      const configChanged =
+        JSON.stringify(existing) !== JSON.stringify(candidate);
+      const currentTask = services.taskController.getCurrentTask();
+      if (
+        configChanged &&
+        currentTask &&
+        ACTIVE_TASK_STATUSES.has(currentTask.status)
+      ) {
         throw new DsmError(
-          'CONFIG_REQUIRED',
-          '已配置 Token 时，必须先填写 GitLab 地址和项目 ID',
+          'TASK_BUSY',
+          '任务运行期间不能修改连接配置',
           'CONFIG',
         );
       }
-      await testConnection(candidate, token, services);
-    }
-    await services.configStore.save(candidate, services.documentsDirectory);
-    return bootstrap(services);
-  });
+
+      const effectiveToken = newToken || (await services.tokenStore.getToken());
+      let connection: ConnectionResult | null = null;
+      if (effectiveToken) {
+        if (!isRemoteConfigReady(candidate)) {
+          throw new DsmError(
+            'CONFIG_REQUIRED',
+            '已配置 Token 时，必须先填写 GitLab 地址和项目 ID',
+            'CONFIG',
+          );
+        }
+        connection = await testConnection(candidate, effectiveToken, services);
+      }
+
+      await services.configStore.save(candidate, services.documentsDirectory);
+      if (configChanged) {
+        services.fileReader.reset();
+      }
+
+      if (newToken) {
+        await services.tokenStore.setUserToken(newToken);
+        await services.logger.log('INFO', 'CONFIG', 'Token 验证并保存成功', {
+          details: { username: connection?.username },
+        });
+      }
+
+      return { bootstrap: await bootstrap(services), connection };
+    },
+  );
 
   handle<ConnectionResult>('dsm:test-connection', async () => {
     const config = validateAppConfig(await services.configStore.load(), {
@@ -114,8 +152,7 @@ export function setupIpc(services: IpcServices): void {
   });
 
   handle<ReaderProbeResult>('dsm:test-file-reader', async (_event, value) => {
-    const nodePath =
-      typeof value === 'string' && value.trim() ? value.trim() : null;
+    const selection = parseReaderSelection(value);
     const result = await dialog.showOpenDialog(services.getMainWindow(), {
       title: '选择受 DSM 管理的文件进行读取测试',
       properties: ['openFile'],
@@ -123,24 +160,7 @@ export function setupIpc(services: IpcServices): void {
     if (result.canceled || !result.filePaths[0]) {
       throw new DsmError('INVALID_REQUEST', '未选择测试文件', 'CHECK');
     }
-    return services.fileReader.probe(result.filePaths[0], nodePath);
-  });
-
-  handle('dsm:save-token', async (_event, value) => {
-    const token = requireString(value, 'Token').trim();
-    if (!token) {
-      await services.logger.log('INFO', 'CONFIG', '用户清除了 Token');
-      return services.tokenStore.clear();
-    }
-    const config = validateAppConfig(await services.configStore.load(), {
-      requireRemote: true,
-    });
-    const connection = await testConnection(config, token, services);
-    const status = await services.tokenStore.setUserToken(token);
-    await services.logger.log('INFO', 'CONFIG', 'Token 验证并保存成功', {
-      details: { username: connection.username },
-    });
-    return status;
+    return services.fileReader.probe(result.filePaths[0], selection);
   });
 
   handle('dsm:clear-token', async () => {
@@ -311,6 +331,28 @@ function requireString(value: unknown, label: string): string {
     throw new DsmError('INVALID_REQUEST', `${label}无效`, 'CHECK');
   }
   return value;
+}
+
+function parseOptionalToken(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new DsmError('INVALID_REQUEST', 'Token 格式无效', 'CONFIG');
+  }
+  return value.trim() || null;
+}
+
+function parseReaderSelection(value: unknown): ReaderSelection {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new DsmError('INVALID_REQUEST', '读取器测试参数无效', 'CHECK');
+  }
+  const record = value as Record<string, unknown>;
+  return normalizeReaderSelection({
+    preferredReader: record.preferredReader,
+    nodeReaderPath: record.nodeReaderPath,
+    pythonReaderPath: record.pythonReaderPath,
+  });
 }
 
 function requireRecoveryAction(value: unknown): RecoveryAction {

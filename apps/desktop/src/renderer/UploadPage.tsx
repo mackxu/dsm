@@ -10,7 +10,6 @@ interface UploadPageProps {
   active: boolean;
   onTask: (task: TaskSnapshot) => void;
   onOpenSettings: () => void;
-  onOpenToken: () => void;
   onNotice: (message: string | null) => void;
 }
 
@@ -20,7 +19,6 @@ export function UploadPage({
   active,
   onTask,
   onOpenSettings,
-  onOpenToken,
   onNotice,
 }: UploadPageProps): React.JSX.Element {
   const [file, setFile] = useState<LocalFileInfo | null>(null);
@@ -126,7 +124,11 @@ export function UploadPage({
             {busy ? '检查中…' : active ? '任务运行中' : '开始同步'}
           </button>
           {!bootstrap.token.configured && (
-            <button type="button" className="text-button" onClick={onOpenToken}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={onOpenSettings}
+            >
               配置 Token
             </button>
           )}

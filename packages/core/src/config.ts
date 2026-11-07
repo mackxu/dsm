@@ -8,6 +8,16 @@ export interface ArchiveLimits {
   maxEntries: number;
 }
 
+export type ReaderKind = 'node' | 'python';
+
+export type ReaderSource = 'config' | 'environment' | 'auto';
+
+export interface ReaderSelection {
+  preferredReader: ReaderKind;
+  nodeReaderPath: string | null;
+  pythonReaderPath: string | null;
+}
+
 export interface AppConfig {
   schemaVersion: 1;
   gitlabUrl: string;
@@ -15,10 +25,19 @@ export interface AppConfig {
   branch: string;
   saveDirectory: string | null;
   /**
+   * 优先使用的 DSM 读取器。另一个读取器只在其自动探测完全失败时回退使用。
+   */
+  preferredReader: ReaderKind;
+  /**
    * DSM 白名单中的 Node 可执行文件路径。为 null 时由桌面端自动探测，
    * 探测失败则任务在读取前失败。
    */
   nodeReaderPath: string | null;
+  /**
+   * DSM 白名单中的 Python 可执行文件路径。为 null 时由桌面端自动探测，
+   * 探测失败则尝试另一个读取器。
+   */
+  pythonReaderPath: string | null;
   apiTimeoutMs: number;
   downloadTimeoutMs: number;
   maxUploadBytes: number;
@@ -39,7 +58,9 @@ export const DEFAULT_CONFIG: Readonly<AppConfig> = {
   projectId: '',
   branch: 'main',
   saveDirectory: null,
+  preferredReader: 'node',
   nodeReaderPath: null,
+  pythonReaderPath: null,
   apiTimeoutMs: 30_000,
   downloadTimeoutMs: 120_000,
   maxUploadBytes: PRODUCT_LIMITS.maxUploadBytes,
@@ -67,6 +88,40 @@ function positiveInteger(value: unknown, field: string, maximum?: number): numbe
     );
   }
   return value as number;
+}
+
+export function normalizeReaderSelection(input: {
+  preferredReader?: unknown;
+  nodeReaderPath?: unknown;
+  pythonReaderPath?: unknown;
+}): ReaderSelection {
+  const value = input.preferredReader;
+  let preferredReader: ReaderKind;
+
+  if (value === undefined || value === null || value === '') {
+    preferredReader = 'node';
+  } else if (value === 'node' || value === 'python') {
+    preferredReader = value;
+  } else {
+    throw new DsmError(
+      'CONFIG_INVALID',
+      '优先读取器必须是 node 或 python',
+      'CONFIG',
+    );
+  }
+
+  return {
+    preferredReader,
+    nodeReaderPath: normalizeReaderPath(input.nodeReaderPath),
+    pythonReaderPath: normalizeReaderPath(input.pythonReaderPath),
+  };
+}
+
+function normalizeReaderPath(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return String(value).trim() || null;
 }
 
 export function normalizeGitLabUrl(value: string): string {
@@ -115,10 +170,11 @@ export function validateAppConfig(
     candidate.saveDirectory === null || candidate.saveDirectory === undefined
       ? null
       : String(candidate.saveDirectory).trim() || null;
-  const nodeReaderPath =
-    candidate.nodeReaderPath === null || candidate.nodeReaderPath === undefined
-      ? null
-      : String(candidate.nodeReaderPath).trim() || null;
+  const readerSelection = normalizeReaderSelection({
+    preferredReader: candidate.preferredReader,
+    nodeReaderPath: candidate.nodeReaderPath,
+    pythonReaderPath: candidate.pythonReaderPath,
+  });
 
   if (options.requireRemote) {
     if (!gitlabUrl) {
@@ -152,7 +208,9 @@ export function validateAppConfig(
     projectId,
     branch: branch || 'main',
     saveDirectory,
-    nodeReaderPath,
+    preferredReader: readerSelection.preferredReader,
+    nodeReaderPath: readerSelection.nodeReaderPath,
+    pythonReaderPath: readerSelection.pythonReaderPath,
     apiTimeoutMs: positiveInteger(
       candidate.apiTimeoutMs ?? DEFAULT_CONFIG.apiTimeoutMs,
       'API 超时',

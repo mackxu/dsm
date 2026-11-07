@@ -13,6 +13,7 @@ const config: ForgeConfig = {
     extraResource: [
       path.resolve('../../resources/preset.json'),
       path.resolve('../../resources/dsm-file-reader.cjs'),
+      path.resolve('../../resources/dsm-file-reader.py'),
     ],
     appBundleId: 'com.dsm-tool.desktop',
     ...(process.env.ELECTRON_ZIP_DIR

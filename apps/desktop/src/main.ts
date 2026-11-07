@@ -150,14 +150,21 @@ app
     });
     const configStore = new ConfigStore(paths.userData, presetStore);
     const tokenStore = new TokenStore(paths.userData, presetStore);
-    const readerHelperPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'dsm-file-reader.cjs')
-      : path.resolve(app.getAppPath(), '../../resources/dsm-file-reader.cjs');
+    const resourcesDirectory = app.isPackaged
+      ? process.resourcesPath
+      : path.resolve(app.getAppPath(), '../../resources');
     const fileReader = new WhitelistedFileReader({
-      helperPath: readerHelperPath,
+      nodeHelperPath: path.join(resourcesDirectory, 'dsm-file-reader.cjs'),
+      pythonHelperPath: path.join(resourcesDirectory, 'dsm-file-reader.py'),
       logger,
-      getConfiguredNodePath: async () =>
-        (await configStore.load()).nodeReaderPath,
+      getReaderSelection: async () => {
+        const config = await configStore.load();
+        return {
+          preferredReader: config.preferredReader,
+          nodeReaderPath: config.nodeReaderPath,
+          pythonReaderPath: config.pythonReaderPath,
+        };
+      },
     });
     const transport = new LoggingHttpTransport(
       new ElectronHttpTransport(),

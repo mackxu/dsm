@@ -49,6 +49,34 @@ describe('configuration', () => {
     expect(validateAppConfig(DEFAULT_CONFIG).nodeReaderPath).toBeNull();
   });
 
+  it('defaults and normalizes the DSM reader selection', () => {
+    const defaults = validateAppConfig(DEFAULT_CONFIG);
+    expect(defaults.preferredReader).toBe('node');
+    expect(defaults.pythonReaderPath).toBeNull();
+
+    const normalized = validateAppConfig({
+      ...DEFAULT_CONFIG,
+      preferredReader: 'python',
+      pythonReaderPath: '  /opt/homebrew/bin/python3  ',
+    });
+    expect(normalized.preferredReader).toBe('python');
+    expect(normalized.pythonReaderPath).toBe('/opt/homebrew/bin/python3');
+
+    expect(
+      validateAppConfig({
+        ...DEFAULT_CONFIG,
+        pythonReaderPath: '   ',
+      }).pythonReaderPath,
+    ).toBeNull();
+
+    expect(() =>
+      validateAppConfig({
+        ...DEFAULT_CONFIG,
+        preferredReader: 'auto',
+      }),
+    ).toThrow(/优先读取器/);
+  });
+
   it('rejects API URLs and unsupported protocols', () => {
     expect(() =>
       validateAppConfig({

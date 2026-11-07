@@ -91,7 +91,6 @@ apps/desktop/src/main/
   platform/electron-platform.ts
 apps/desktop/src/renderer/
   App.tsx
-  TokenSetupPage.tsx
   UploadPage.tsx
   SettingsPage.tsx
   LogsPage.tsx
@@ -158,7 +157,7 @@ apps/desktop/src/renderer/
 
 - Preload 暴露固定、带类型的 IPC API。
 - 接入文件选择和拖入路径。
-- 实现 Token 页面、上传页、配置页、日志页和任务弹窗。
+- 实现设置页（含 Token 区块）、上传页、日志页和任务弹窗。
 - 无 Token 时保留本地操作并禁用上传。
 - 任务期间锁定关键配置。
 - Renderer 不读取已有 Token。
@@ -287,6 +286,9 @@ MVP 不要求自动化覆盖：
 | T14 | 日志脱敏 | 自动测试 + 手工检查 | 日志无 Token、认证头和文件内容，轮转符合限制 |
 | T15 | arm64 安装包 | 命令 + 手工 | DMG 安装启动成功，应用架构为 `arm64` |
 | T16 | 预置配置打包 | 资源检查 + 安装启动 | 安装包资源存在预置文件，首启后配置已填充并可完成验证与上传 |
+| T17 | Node 缺失时回退 Python | 单元 + 手工 | 优先 Node、Node 自动探测失败时使用 Python，日志 INFO 包含实际路径，上传内容为明文 |
+| T18 | Python 缺失时回退 Node | 手工 | 优先 Python、Python 自动探测失败时使用 Node |
+| T19 | 显式读取器路径错误 | 手工 | 直接 `READER_UNAVAILABLE`，不切换到另一个读取器 |
 
 ### 3.3 发布前人工验收
 
@@ -299,14 +301,15 @@ MVP 不要求自动化覆盖：
 5. 选择一次测试文件，完成上传、下载、解压。
 6. 检查任务目录、Commit ID、日志和 ZIP 保留策略。
 7. 执行一次只重试下载/解压的失败恢复。
-8. 检查应用版本、架构和安装包资源。
+8. 在没有 Node 的目标机器上选择 Python 读取器，填写真实解释器路径，先执行「选择文件测试」再上传，确认日志记录实际路径。
+9. 检查应用版本、架构和安装包资源。
 
 ### 3.4 发布判定
 
 可以发布时，以下条件必须全部满足：
 
 - `pnpm run check` 和 `pnpm run test` 通过。
-- T01–T16 全部通过，或未通过项有明确书面豁免。
+- T01–T19 全部通过，或未通过项有明确书面豁免。
 - 真实 GitLab 冒烟测试通过，且不接触生产敏感文件。
 - 安装包只包含 `arm64`，可安装、启动和完成任务。
 - 预置配置、预置 Token 和明文 `token.json` 的行为符合已确认需求。

@@ -1,22 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { TaskSnapshot } from '@dsm/core';
+import type { TaskSnapshot, TokenStatus } from '@dsm/core';
 import type { BootstrapData } from '../shared.ts';
 import { errorMessage, unwrap } from './api.ts';
 import { LogsPage } from './LogsPage.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
 import { TaskDialog } from './TaskDialog.tsx';
-import { TokenSetupPage } from './TokenSetupPage.tsx';
 import { UploadPage } from './UploadPage.tsx';
 
-export type Page = 'upload' | 'settings' | 'token' | 'logs';
+export type Page = 'upload' | 'settings' | 'logs';
 
-const PAGE_TITLES: Record<Page, string> = {
-  upload: '文件同步',
-  settings: '连接设置',
-  token: '访问令牌',
+type SubPage = Exclude<Page, 'upload'>;
+
+const PAGE_TITLES: Record<SubPage, string> = {
+  settings: '设置',
   logs: '运行日志',
 };
+
+const ACTIVE_STATUSES: ReadonlySet<TaskSnapshot['status']> = new Set([
+  'CHECKING',
+  'WAITING_FOR_TOKEN',
+  'WAITING_FOR_OVERWRITE_CONFIRMATION',
+  'WAITING_FOR_BRANCH_CONFIRMATION',
+  'UPLOADING',
+  'UPLOADED',
+  'DOWNLOADING',
+  'EXTRACTING',
+  'CLEANING',
+]);
 
 export function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('upload');
@@ -24,6 +35,8 @@ export function App(): React.JSX.Element {
   const [task, setTask] = useState<TaskSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const workspaceRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -48,11 +61,47 @@ export function App(): React.JSX.Element {
     };
   }, []);
 
-  async function refreshBootstrap(): Promise<BootstrapData> {
-    const data = await unwrap(window.dsm.bootstrap());
+  useEffect(() => {
+    workspaceRef.current?.scrollTo(0, 0);
+  }, [page]);
+
+  async function handleSaved(
+    data: BootstrapData,
+    tokenSubmitted: boolean,
+  ): Promise<void> {
     setBootstrap(data);
     setTask(data.currentTask);
-    return data;
+    setSettingsDirty(false);
+
+    const current = data.currentTask;
+    if (
+      tokenSubmitted &&
+      data.token.configured &&
+      current?.recoveryActions.includes('CONFIGURE_TOKEN')
+    ) {
+      try {
+        setTask(
+          await unwrap(
+            window.dsm.recoverTask(current.taskId, 'CONFIGURE_TOKEN'),
+          ),
+        );
+      } catch (error) {
+        setNotice(errorMessage(error));
+      }
+    }
+  }
+
+  function handleTokenChanged(status: TokenStatus): void {
+    setBootstrap((current) =>
+      current ? { ...current, token: status } : current,
+    );
+  }
+
+  function goBack(): void {
+    if (settingsDirty && !window.confirm('设置尚未保存，确定返回吗？')) {
+      return;
+    }
+    setPage('upload');
   }
 
   if (loading) {
@@ -74,15 +123,13 @@ export function App(): React.JSX.Element {
     );
   }
 
-  const active = Boolean(
-    task &&
-    !['SUCCESS', 'SUCCESS_WITH_WARNING', 'FAILED'].includes(task.status),
-  );
+  const active = Boolean(task && ACTIVE_STATUSES.has(task.status));
+  const logsMode = page === 'logs';
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="drag-region">
+      <header className="app-bar drag-region">
+        {page === 'upload' ? (
           <div className="brand">
             <div className="brand-mark">DSM</div>
             <div>
@@ -90,132 +137,91 @@ export function App(): React.JSX.Element {
               <span>GitLab → 本地归档</span>
             </div>
           </div>
-        </div>
-
-        <nav className="nav-list" aria-label="主导航">
-          {(
-            [
-              ['upload', '同步文件', '01'],
-              ['settings', '连接设置', '02'],
-              ['token', '访问令牌', '03'],
-              ['logs', '运行日志', '04'],
-            ] as Array<[Page, string, string]>
-          ).map(([key, label, number]) => (
-            <button
-              key={key}
-              type="button"
-              className={page === key ? 'nav-item active' : 'nav-item'}
-              onClick={() => setPage(key)}
-            >
-              <span>{number}</span>
-              {label}
+        ) : (
+          <div className="app-bar-leading">
+            <button type="button" className="back-button" onClick={goBack}>
+              ← 返回
             </button>
-          ))}
-        </nav>
-
-        <div className="connection-card">
-          <span
-            className={
-              bootstrap.token.configured
-                ? 'connection-dot online'
-                : 'connection-dot'
-            }
-          />
-          <div>
-            <strong>
-              {bootstrap.token.configured ? 'Token 已配置' : 'Token 未配置'}
-            </strong>
-            <span>{sourceLabel(bootstrap.token.source)}</span>
+            <h1 className="app-bar-title">{PAGE_TITLES[page]}</h1>
           </div>
-        </div>
-        <p className="version">
-          v{bootstrap.appVersion} · {bootstrap.platformLabel}
-        </p>
-      </aside>
+        )}
 
-      <main className="workspace">
-        <header className="page-header drag-region">
-          <div>
-            <span className="eyebrow">DSM WORKSPACE</span>
-            <h1>{PAGE_TITLES[page]}</h1>
-          </div>
+        <div className="app-bar-actions">
           <div className="header-status">
             <span className={active ? 'pulse active' : 'pulse'} />
             {active ? '任务运行中' : '准备就绪'}
           </div>
-        </header>
-
-        {notice && (
-          <div className="notice" role="status">
-            <span>{notice}</span>
-            <button type="button" onClick={() => setNotice(null)}>
-              关闭
-            </button>
-          </div>
-        )}
-
-        <section className="page-content">
           {page === 'upload' && (
+            <>
+              <button
+                type="button"
+                className="bar-button"
+                onClick={() => setPage('logs')}
+              >
+                日志
+              </button>
+              <button
+                type="button"
+                className="bar-button"
+                onClick={() => setPage('settings')}
+              >
+                设置
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <main
+        className={logsMode ? 'workspace logs-mode' : 'workspace'}
+        ref={workspaceRef}
+      >
+        <div className={logsMode ? 'page-content logs-mode' : 'page-content'}>
+          {notice && (
+            <div className="notice" role="status">
+              <span>{notice}</span>
+              <button type="button" onClick={() => setNotice(null)}>
+                关闭
+              </button>
+            </div>
+          )}
+
+          <section hidden={page !== 'upload'}>
             <UploadPage
               bootstrap={bootstrap}
               task={task}
               active={active}
               onTask={setTask}
               onOpenSettings={() => setPage('settings')}
-              onOpenToken={() => setPage('token')}
               onNotice={setNotice}
             />
-          )}
+          </section>
+
           {page === 'settings' && (
             <SettingsPage
               bootstrap={bootstrap}
               locked={active}
-              onSaved={(data) => {
-                setBootstrap(data);
-                setNotice('设置已保存');
+              onSaved={(data, tokenSubmitted) => {
+                void handleSaved(data, tokenSubmitted);
               }}
+              onTokenChanged={handleTokenChanged}
+              onDirtyChange={setSettingsDirty}
               onNotice={setNotice}
             />
           )}
-          {page === 'token' && (
-            <TokenSetupPage
-              bootstrap={bootstrap}
-              onChanged={async () => {
-                const data = await refreshBootstrap();
-                if (
-                  data.currentTask?.recoveryActions.includes('CONFIGURE_TOKEN')
-                ) {
-                  const resumed = await unwrap(
-                    window.dsm.recoverTask(
-                      data.currentTask.taskId,
-                      'CONFIGURE_TOKEN',
-                    ),
-                  );
-                  setTask(resumed);
-                }
-              }}
-              onSkip={() => setPage('upload')}
-              onNotice={setNotice}
-            />
-          )}
+
           {page === 'logs' && <LogsPage onNotice={setNotice} />}
-        </section>
+        </div>
       </main>
 
       {task && (
         <TaskDialog
           task={task}
           onTask={setTask}
-          onOpenToken={() => setPage('token')}
+          onOpenSettings={() => setPage('settings')}
           onNotice={setNotice}
         />
       )}
     </div>
   );
-}
-
-function sourceLabel(source: BootstrapData['token']['source']): string {
-  if (source === 'preset') return '来自安装包预置';
-  if (source === 'user') return '来自用户配置';
-  return '本地功能仍可使用';
 }

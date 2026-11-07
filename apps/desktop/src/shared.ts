@@ -1,6 +1,9 @@
 import type {
   AppConfig,
   DsmErrorCode,
+  ReaderKind,
+  ReaderSelection,
+  ReaderSource,
   RecoveryAction,
   TaskSnapshot,
   TaskStage,
@@ -44,10 +47,19 @@ export interface ConnectionResult {
   defaultBranch: string | null;
 }
 
+export interface SaveSettingsResult {
+  bootstrap: BootstrapData;
+  connection: ConnectionResult | null;
+}
+
 export interface ReaderProbeResult {
   fileName: string;
-  nodePath: string;
-  nodeVersion: string;
+  preferredReader: ReaderKind;
+  usedReader: ReaderKind;
+  fallbackUsed: boolean;
+  readerPath: string;
+  readerVersion: string;
+  readerSource: ReaderSource;
   directSize: number;
   readerSize: number;
   directSha256: string;
@@ -63,12 +75,14 @@ export interface DesktopApi {
   inspectFile(path: string): Promise<ApiResult<LocalFileInfo>>;
   chooseDirectory(): Promise<ApiResult<string | null>>;
   getPathForFile(file: File): string;
-  saveSettings(config: AppConfig): Promise<ApiResult<BootstrapData>>;
+  saveSettings(
+    config: AppConfig,
+    token?: string,
+  ): Promise<ApiResult<SaveSettingsResult>>;
   testConnection(): Promise<ApiResult<ConnectionResult>>;
   testFileReader(
-    nodePath: string | null,
+    selection: ReaderSelection,
   ): Promise<ApiResult<ReaderProbeResult>>;
-  saveToken(token: string): Promise<ApiResult<TokenStatus>>;
   clearToken(): Promise<ApiResult<TokenStatus>>;
   startTask(filePath: string): Promise<ApiResult<TaskSnapshot>>;
   confirmTask(

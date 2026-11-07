@@ -64,7 +64,7 @@
   -> 发起 GitLab 操作时提示配置 Token
 ```
 
-Token 缺失不阻止应用启动、修改非敏感设置或选择本地文件，只阻止测试连接、远端检查和上传下载。Token 页面可跳过或稍后打开。
+Token 缺失不阻止应用启动、修改非敏感设置或选择本地文件，只阻止测试连接、远端检查和上传下载。Token 可在设置页的 Token 区块跳过或稍后配置。
 
 安装包允许通过 Forge `extraResource` 预置 GitLab 地址、项目 ID、目标分支和真实 Token（`resources/preset.json`）。尚未保存 `settings.json` 时，预置连接配置作为首次启动的初始值；用户保存设置后以用户配置为准，新安装包不会覆盖。首次启动将预置 Token 复制到 `userData/token.json` 明文保存。用户修改后使用用户版本；用户清除后写入空值并标记为用户覆盖，不再次恢复预置值。
 
@@ -224,7 +224,6 @@ apps/
           electron-platform.ts
       renderer/
         App.tsx
-        TokenSetupPage.tsx
         UploadPage.tsx
         SettingsPage.tsx
         LogsPage.tsx
@@ -392,6 +391,9 @@ Token 使用 GitLab `api` scope，因为上传需要 File API 写能力。管理
   "projectId": "123",
   "branch": "main",
   "saveDirectory": null,
+  "preferredReader": "node",
+  "nodeReaderPath": null,
+  "pythonReaderPath": null,
   "apiTimeoutMs": 30000,
   "downloadTimeoutMs": 120000,
   "maxUploadBytes": 52428800,
@@ -537,7 +539,7 @@ Commit 解压完成”，不使用“完整性已验证”。
 
 - Token 预置和明文保存是已确认的产品决策，不得在实现时替换为系统安全存储。
 - 明文 Token 文件采用最小文件权限和原子写入，但不提供机密性保护。
-- Renderer 不读取已有 Token，不拥有 Node、任意文件系统或命令执行能力。
+- Renderer 不读取已有 Token，不拥有 Node/Python、任意文件系统或命令执行能力。
 - 上传、覆盖和创建分支均需要用户确认。
 - GitLab 地址允许 HTTP 和 HTTPS，不强制协议。
 - 上传不自动重试；读取和下载只做有限、可识别错误的重试。

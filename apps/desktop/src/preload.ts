@@ -9,12 +9,11 @@ const api: DesktopApi = {
   inspectFile: (filePath) => ipcRenderer.invoke('dsm:inspect-file', filePath),
   chooseDirectory: () => ipcRenderer.invoke('dsm:choose-directory'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
-  saveSettings: (config: AppConfig) =>
-    ipcRenderer.invoke('dsm:save-settings', config),
+  saveSettings: (config: AppConfig, token?: string) =>
+    ipcRenderer.invoke('dsm:save-settings', config, token ?? ''),
   testConnection: () => ipcRenderer.invoke('dsm:test-connection'),
-  testFileReader: (nodePath: string | null) =>
-    ipcRenderer.invoke('dsm:test-file-reader', nodePath),
-  saveToken: (token: string) => ipcRenderer.invoke('dsm:save-token', token),
+  testFileReader: (selection) =>
+    ipcRenderer.invoke('dsm:test-file-reader', selection),
   clearToken: () => ipcRenderer.invoke('dsm:clear-token'),
   startTask: (filePath: string) =>
     ipcRenderer.invoke('dsm:start-task', filePath),
