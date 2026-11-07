@@ -21,7 +21,7 @@ const MAX_VERSION_OUTPUT_CHARS = 100;
  *
  * 优先使用用户配置的路径，其次使用 DSM_NODE_PATH，最后自动探测。
  * 显式配置但不可执行时抛错，避免静默回退导致上传密文；自动探测
- * 失败时返回 null，由调用方决定是否回退主进程直读。
+ * 失败时返回 null，由调用方按读取不可用处理。
  */
 export class NodeExecutableResolver {
   private readonly cache = new Map<string, ResolvedNode>();

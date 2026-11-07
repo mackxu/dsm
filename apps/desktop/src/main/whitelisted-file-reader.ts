@@ -29,6 +29,7 @@ export interface WhitelistedFileReaderOptions {
  *
  * 外部 Node 必须位于 DSM 进程白名单中；Electron 主进程不在白名单，
  * 直接 fs.readFile 只能读到密文。内容不落盘，避免明文被再次加密。
+ * 自动探测失败时直接失败，不回退主进程直读。
  */
 export class WhitelistedFileReader {
   private readonly resolver = new NodeExecutableResolver();
@@ -44,14 +45,14 @@ export class WhitelistedFileReader {
     const node = await this.resolver.resolve(configuredPath);
 
     if (!node) {
-      await this.log('WARN', '未找到可用的 Node，回退为主进程直接读取', {
+      await this.log('WARN', '未找到可用的 Node，读取中止', {
         hint: 'DSM 受控环境请在设置中填写白名单 Node 的绝对路径',
       });
-      const content = await fs.readFile(filePath);
-      if (content.length > options.maxBytes) {
-        throw new DsmError('FILE_TOO_LARGE', '文件超过上传大小上限', 'CHECK');
-      }
-      return content;
+      throw new DsmError(
+        'READER_UNAVAILABLE',
+        '未找到可用的 Node，请在设置中填写白名单 Node 的绝对路径',
+        'CHECK',
+      );
     }
 
     await this.ensureHelper();

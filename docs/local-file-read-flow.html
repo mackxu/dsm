@@ -1,0 +1,1405 @@
+<title>本地文件读取流程</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Serif:wght@500;600&amp;display=swap">
+
+<style>
+  /* ——— Design plan ———
+     Palette: cool graphite paper, deep teal for the main process,
+     cobalt for renderer, amber for the outside Node helper, crimson for failures.
+     Type: IBM Plex Serif for display, IBM Plex Sans for running text,
+     IBM Plex Mono for identifiers and process annotations.
+     Layout: single documented column; the diagrams are the only wide elements
+     and scroll inside their own containers. */
+
+  :root {
+    --bg: #edf0f2;
+    --surface: #ffffff;
+    --surface-2: #f2f5f6;
+    --ink: #15242c;
+    --ink-soft: #4b5e69;
+    --ink-faint: #6b7e89;
+    --line: #cfd9df;
+    --line-soft: #e0e7eb;
+    --line-strong: #8ca0ac;
+    --edge: #71858f;
+    --accent: #0a665f;
+    --accent-strong: #074b46;
+    --accent-soft: #d9ece8;
+    --danger: #a9252c;
+    --danger-soft: #f7e3e3;
+    --danger-line: #d9a3a3;
+    --warn: #8a5200;
+    --warn-soft: #f6e9d3;
+    --warn-line: #d8b47a;
+    --renderer: #2c5f8a;
+    --renderer-soft: #e2ebf3;
+    --node-color: #8a5b13;
+    --node-soft: #f4e7d0;
+    --shadow: 0 1px 2px rgba(21, 36, 44, 0.06), 0 12px 32px rgba(21, 36, 44, 0.06);
+    --font-ui: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-display: "IBM Plex Serif", "Songti SC", Georgia, serif;
+    --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10171c;
+      --surface: #171f26;
+      --surface-2: #1d2830;
+      --ink: #e4edf2;
+      --ink-soft: #a9bac4;
+      --ink-faint: #8699a5;
+      --line: #36454f;
+      --line-soft: #26343d;
+      --line-strong: #5b7280;
+      --edge: #8298a4;
+      --accent: #57c9b8;
+      --accent-strong: #8fe0d4;
+      --accent-soft: #173631;
+      --danger: #ff8a8a;
+      --danger-soft: #3a1f22;
+      --danger-line: #7a3d42;
+      --warn: #e5ab5e;
+      --warn-soft: #382b18;
+      --warn-line: #6f552c;
+      --renderer: #7fb4df;
+      --renderer-soft: #1c2c3a;
+      --node-color: #e2b573;
+      --node-soft: #352a18;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.25);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #10171c;
+    --surface: #171f26;
+    --surface-2: #1d2830;
+    --ink: #e4edf2;
+    --ink-soft: #a9bac4;
+    --ink-faint: #8699a5;
+    --line: #36454f;
+    --line-soft: #26343d;
+    --line-strong: #5b7280;
+    --edge: #8298a4;
+    --accent: #57c9b8;
+    --accent-strong: #8fe0d4;
+    --accent-soft: #173631;
+    --danger: #ff8a8a;
+    --danger-soft: #3a1f22;
+    --danger-line: #7a3d42;
+    --warn: #e5ab5e;
+    --warn-soft: #382b18;
+    --warn-line: #6f552c;
+    --renderer: #7fb4df;
+    --renderer-soft: #1c2c3a;
+    --node-color: #e2b573;
+    --node-soft: #352a18;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.25);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1.65;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding-block: clamp(28px, 5vw, 64px) 72px;
+  }
+
+  .masthead {
+    padding-bottom: clamp(26px, 4vw, 38px);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2.2rem, 5.5vw, 3.6rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  .lede {
+    max-width: 68ch;
+    margin: 18px 0 0;
+    color: var(--ink-soft);
+    font-size: clamp(1rem, 1.6vw, 1.125rem);
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin: 28px 0 0;
+    padding-top: 22px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .meta div { min-width: 0; }
+
+  .meta dt {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .meta dd {
+    margin: 4px 0 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  .section {
+    margin-top: clamp(48px, 7vw, 84px);
+  }
+
+  .section-head {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    column-gap: 24px;
+    margin-bottom: 22px;
+  }
+
+  .kicker {
+    grid-row: 1 / span 2;
+    margin: 0;
+    padding-top: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .section-head h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+
+  .section-lede {
+    max-width: 72ch;
+    margin: 10px 0 0;
+    color: var(--ink-soft);
+  }
+
+  .figure {
+    margin: 0;
+    padding: 18px 18px 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .figure-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+    margin-bottom: 14px;
+    padding: 2px 4px 14px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .dot.renderer { background: var(--renderer); }
+  .dot.main { background: var(--accent); }
+  .dot.node { background: var(--node-color); }
+  .dot.gitlab { background: var(--ink-faint); }
+  .dot.danger { background: var(--danger); }
+
+  .figure-tag {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+  }
+
+  .diagram-scroll {
+    overflow-x: auto;
+    padding: 4px 0;
+  }
+
+  .flow-svg {
+    display: block;
+    width: 100%;
+    min-width: 1000px;
+    height: auto;
+  }
+
+  .flow-svg.compact { min-width: 880px; }
+
+  figcaption {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 0.875rem;
+    color: var(--ink-soft);
+  }
+
+  /* ——— SVG primitives ——— */
+  .flow-svg text { font-family: var(--font-ui); }
+
+  .flow-svg .box {
+    fill: var(--surface);
+    stroke: var(--line-strong);
+    stroke-width: 1.2;
+  }
+
+  .flow-svg .node-title {
+    font-size: 14px;
+    font-weight: 600;
+    fill: var(--ink);
+  }
+
+  .flow-svg .node-sub {
+    font-size: 12px;
+    fill: var(--ink-soft);
+  }
+
+  .flow-svg .node-sub.mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .flow-svg .actor {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+  }
+
+  .flow-svg .actor.renderer { fill: var(--renderer); }
+  .flow-svg .actor.main { fill: var(--accent); }
+  .flow-svg .actor.node { fill: var(--node-color); }
+  .flow-svg .actor.gitlab { fill: var(--ink-faint); }
+
+  .flow-svg .node.accent .box {
+    fill: var(--accent-soft);
+    stroke: var(--accent);
+  }
+
+  .flow-svg .node.subflow .box {
+    fill: var(--surface-2);
+    stroke: var(--line-strong);
+    stroke-dasharray: 6 5;
+  }
+
+  .flow-svg .diamond polygon {
+    fill: var(--surface-2);
+    stroke: var(--line-strong);
+    stroke-width: 1.2;
+  }
+
+  .flow-svg .diamond .node-title { font-size: 13.5px; }
+
+  .flow-svg .edge {
+    fill: none;
+    stroke: var(--edge);
+    stroke-width: 1.5;
+  }
+
+  .flow-svg .edge.return { stroke-dasharray: 6 5; }
+  .flow-svg .edge.danger { stroke: var(--danger); }
+
+  .flow-svg .edge-label {
+    font-size: 11px;
+    fill: var(--ink-faint);
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 4px;
+    stroke-linejoin: round;
+  }
+
+  .flow-svg .arrow-head { fill: var(--edge); }
+  .flow-svg .arrow-head.danger { fill: var(--danger); }
+
+  .flow-svg .branch rect { stroke-width: 1.2; }
+  .flow-svg .branch.error rect { fill: var(--danger-soft); stroke: var(--danger-line); }
+  .flow-svg .branch.warn rect { fill: var(--warn-soft); stroke: var(--warn-line); }
+
+  .flow-svg .branch .b-title {
+    font-size: 13px;
+    font-weight: 600;
+    fill: var(--ink);
+  }
+
+  .flow-svg .branch.error .b-title { fill: var(--danger); }
+  .flow-svg .branch.warn .b-title { fill: var(--warn); }
+
+  .flow-svg .branch .b-sub {
+    font-size: 11.5px;
+    fill: var(--ink-soft);
+  }
+
+  .flow-svg .branch .b-sub.mono {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+
+  .flow-svg .phase-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    fill: var(--accent);
+  }
+
+  .flow-svg .phase-rule {
+    stroke: var(--line-soft);
+    stroke-width: 1;
+  }
+
+  .flow-svg .annotation-label {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    fill: var(--accent);
+  }
+
+  .flow-svg .annotation {
+    font-size: 11px;
+    fill: var(--ink-faint);
+  }
+
+  .flow-svg .annotation-line {
+    stroke: var(--line);
+    stroke-width: 1;
+    stroke-dasharray: 3 4;
+  }
+
+  .flow-svg .participant .box {
+    fill: var(--surface-2);
+    stroke: var(--line-strong);
+  }
+
+  .flow-svg .lifeline {
+    stroke: var(--line);
+    stroke-width: 1;
+    stroke-dasharray: 4 5;
+  }
+
+  .flow-svg .msg-label {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    fill: var(--ink);
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
+  .flow-svg .msg-sub {
+    font-size: 10.5px;
+    fill: var(--ink-faint);
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
+  .flow-svg .note rect {
+    fill: var(--surface-2);
+    stroke: var(--line);
+    stroke-width: 1;
+  }
+
+  .flow-svg .note text {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    fill: var(--ink-soft);
+  }
+
+  .flow-svg .priority {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    fill: var(--accent);
+  }
+
+  .flow-svg .mini-heading {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    fill: var(--ink-faint);
+  }
+
+  /* ——— Detail blocks ——— */
+  .detail-list {
+    display: grid;
+    gap: 0;
+    margin: 22px 0 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: detail;
+  }
+
+  .detail-list li {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px 0;
+    border-top: 1px solid var(--line-soft);
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+  }
+
+  .detail-list li:last-child { border-bottom: 1px solid var(--line-soft); }
+
+  .detail-list li::before {
+    counter-increment: detail;
+    content: counter(detail, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+    padding-top: 3px;
+  }
+
+  .detail-list strong {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    margin-top: 22px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  th,
+  td {
+    padding: 11px 14px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  th {
+    background: var(--surface-2);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+
+  tr:last-child td { border-bottom: 0; }
+
+  td { color: var(--ink-soft); }
+  td:first-child { color: var(--ink); }
+
+  code {
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    color: var(--ink);
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 5px;
+    overflow-wrap: anywhere;
+  }
+
+  .constraint-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 22px;
+  }
+
+  .constraint {
+    padding: 18px 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .constraint h3 {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .constraint p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.9rem;
+  }
+
+  .sources {
+    margin: 22px 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .sources li {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: baseline;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 0.9rem;
+  }
+
+  .sources code {
+    padding: 0;
+    background: none;
+    border: 0;
+    font-size: 0.88rem;
+  }
+
+  .sources span { color: var(--ink-soft); }
+
+  .sources .lines {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+
+  .page-footer {
+    margin-top: 56px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 760px) {
+    .section-head {
+      grid-template-columns: 1fr;
+      row-gap: 6px;
+    }
+
+    .kicker {
+      grid-row: auto;
+      padding-top: 0;
+    }
+
+    .meta { grid-template-columns: 1fr 1fr; }
+    .constraint-grid { grid-template-columns: 1fr; }
+
+    .sources li { grid-template-columns: 1fr; gap: 4px; }
+
+    .sources .lines { white-space: normal; }
+  }
+
+  @media (max-width: 480px) {
+    .figure { padding: 14px 12px 12px; border-radius: 12px; }
+    .flow-svg { min-width: 900px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+  }
+</style>
+
+<div class="page">
+  <header class="masthead">
+    <p class="eyebrow">DSM 文件同步助手 · 上传链路</p>
+    <h1>本地文件读取流程</h1>
+    <p class="lede">
+      文件在上传前如何被选中、校验、解密读取，并以明文 Buffer 交给 GitLab。
+      读取发生在配置、Token 与远端冲突确认之后；在 DSM 透明加密环境中，明文只经过白名单
+      Node 的 stdout 管道，不落盘。
+    </p>
+    <dl class="meta">
+      <div>
+        <dt>读取入口</dt>
+        <dd>浏览对话框 / 拖拽</dd>
+      </div>
+      <div>
+        <dt>读取进程</dt>
+        <dd>白名单 Node 子进程</dd>
+      </div>
+      <div>
+        <dt>默认上限</dt>
+        <dd>50 MiB</dd>
+      </div>
+      <div>
+        <dt>明文落盘</dt>
+        <dd>从不</dd>
+      </div>
+    </dl>
+  </header>
+
+  <main>
+    <section class="section" aria-labelledby="flow-title">
+      <div class="section-head">
+        <p class="kicker">Flow</p>
+        <h2 id="flow-title">主流程</h2>
+        <p class="section-lede">
+          一次上传只读取一次文件，且读取发生在远端冲突确认之后。读取前后各有一次
+          stat：读取前与任务启动时记录的 baseline 对比，读取后再确认磁盘状态没有变化。
+        </p>
+      </div>
+
+      <figure class="figure">
+        <div class="figure-toolbar">
+          <div class="legend" aria-hidden="true">
+            <span class="legend-item"><i class="dot renderer"></i>Renderer</span>
+            <span class="legend-item"><i class="dot main"></i>Electron Main</span>
+            <span class="legend-item"><i class="dot node"></i>外部 Node</span>
+            <span class="legend-item"><i class="dot gitlab"></i>GitLab</span>
+          </div>
+          <span class="figure-tag">图 1 / 3</span>
+        </div>
+        <div class="diagram-scroll">
+          <svg class="flow-svg" viewBox="0 0 1160 2490" role="img" aria-label="本地文件读取主流程图：选择与预检、任务启动与确认、读取前校验、白名单 Node 读取、读取后校验与上传">
+            <defs>
+              <marker id="f1-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path class="arrow-head" d="M 0 0 L 10 5 L 0 10 Z"></path>
+              </marker>
+            </defs>
+
+            <!-- phase 01 -->
+            <text class="phase-label" x="24" y="24">01 · 选择与预检</text>
+            <line class="phase-rule" x1="24" y1="36" x2="1136" y2="36"></line>
+
+            <g class="node">
+              <rect class="box" x="190" y="52" width="400" height="66" rx="10"></rect>
+              <text class="node-title" x="210" y="78">用户选择本地文件</text>
+              <text class="node-sub" x="210" y="99">浏览对话框，或拖拽到上传区</text>
+              <text class="actor renderer" x="570" y="72" text-anchor="end">RENDERER</text>
+            </g>
+
+            <path class="edge" d="M 390 118 V 148" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="137">IPC invoke</text>
+
+            <g class="node">
+              <rect class="box" x="190" y="148" width="400" height="66" rx="10"></rect>
+              <text class="node-title" x="210" y="174">dsm:choose-file / dsm:inspect-file</text>
+              <text class="node-sub" x="210" y="195">preload contextBridge → ipcRenderer.invoke</text>
+              <text class="actor renderer" x="570" y="168" text-anchor="end">RENDERER → MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 214 V 244" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="233">主进程接收</text>
+
+            <g class="node">
+              <rect class="box" x="190" y="244" width="400" height="84" rx="10"></rect>
+              <text class="node-title" x="210" y="270">assertTrustedSender + inspectLocalFile</text>
+              <text class="node-sub mono" x="210" y="291">path.resolve → fs.stat → fs.access(R_OK)</text>
+              <text class="node-sub" x="210" y="309">非普通文件 / 空文件 / 超上限 → ApiError</text>
+              <text class="actor main" x="570" y="264" text-anchor="end">MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 328 V 356" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="346">预检</text>
+
+            <g class="diamond">
+              <polygon points="390,356 530,408 390,460 250,408"></polygon>
+              <text class="node-title" x="390" y="403" text-anchor="middle">文件预检通过？</text>
+              <text class="node-sub" x="390" y="425" text-anchor="middle">普通文件 · 非空 · 未超限</text>
+            </g>
+
+            <path class="edge" d="M 530 408 H 650" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="575" y="399">否</text>
+
+            <g class="branch error">
+              <rect x="650" y="368" width="480" height="80" rx="10"></rect>
+              <text class="b-title" x="670" y="396">返回 ApiError 到上传页</text>
+              <text class="b-sub mono" x="670" y="418">FILE_INVALID / FILE_TOO_LARGE</text>
+              <text class="b-sub" x="670" y="436">不创建任务，也不读取文件内容</text>
+            </g>
+
+            <path class="edge" d="M 390 460 V 500" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="482">是</text>
+
+            <g class="node">
+              <rect class="box" x="190" y="500" width="400" height="66" rx="10"></rect>
+              <text class="node-title" x="210" y="526">返回 LocalFileInfo</text>
+              <text class="node-sub mono" x="210" y="547">{ path, name, size, modifiedAt }</text>
+              <text class="actor main" x="570" y="520" text-anchor="end">MAIN → RENDERER</text>
+            </g>
+
+            <path class="edge" d="M 390 566 V 596" marker-end="url(#f1-arrow)"></path>
+
+            <g class="node">
+              <rect class="box" x="190" y="596" width="400" height="66" rx="10"></rect>
+              <text class="node-title" x="210" y="622">上传页展示文件信息</text>
+              <text class="node-sub" x="210" y="643">「开始同步」按钮变为可用</text>
+              <text class="actor renderer" x="570" y="616" text-anchor="end">RENDERER</text>
+            </g>
+
+            <!-- phase 02 -->
+            <text class="phase-label" x="24" y="700">02 · 任务启动与远端确认</text>
+            <line class="phase-rule" x1="24" y1="712" x2="1136" y2="712"></line>
+
+            <g class="node">
+              <rect class="box" x="190" y="736" width="400" height="66" rx="10"></rect>
+              <text class="node-title" x="210" y="762">startTask(file.path)</text>
+              <text class="node-sub" x="210" y="783">TaskController.start → 单任务锁</text>
+              <text class="actor renderer" x="570" y="756" text-anchor="end">RENDERER → MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 802 V 832" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="821">startTask</text>
+
+            <g class="node">
+              <rect class="box" x="190" y="832" width="400" height="104" rx="10"></rect>
+              <text class="node-title" x="210" y="858">任务启动检查</text>
+              <text class="node-sub mono" x="210" y="879">validateAppConfig(requireRemote)</text>
+              <text class="node-sub mono" x="210" y="897">validateFile → baseline { size, mtimeMs }</text>
+              <text class="node-sub" x="210" y="915">保存目录可创建、可写</text>
+              <text class="actor main" x="570" y="852" text-anchor="end">MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 936 V 966" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="955">校验</text>
+
+            <g class="diamond">
+              <polygon points="390,966 530,1018 390,1070 250,1018"></polygon>
+              <text class="node-title" x="390" y="1013" text-anchor="middle">Token 已配置？</text>
+              <text class="node-sub" x="390" y="1035" text-anchor="middle">上传与读取的前置条件</text>
+            </g>
+
+            <path class="edge" d="M 530 1018 H 650" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="575" y="1009">否</text>
+
+            <g class="branch warn">
+              <rect x="650" y="978" width="480" height="80" rx="10"></rect>
+              <text class="b-title" x="670" y="1006">WAITING_FOR_TOKEN</text>
+              <text class="b-sub" x="670" y="1028">可恢复操作：CONFIGURE_TOKEN</text>
+              <text class="b-sub" x="670" y="1046">此时尚未读取文件内容</text>
+            </g>
+
+            <path class="edge" d="M 390 1070 V 1100" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="1089">是</text>
+
+            <g class="node">
+              <rect class="box" x="190" y="1100" width="400" height="84" rx="10"></rect>
+              <text class="node-title" x="210" y="1126">prepareUpload(fileName)</text>
+              <text class="node-sub" x="210" y="1147">查询项目、目标分支、远端同名文件</text>
+              <text class="node-sub mono" x="210" y="1165">HEAD repository/files/:path</text>
+              <text class="actor main" x="570" y="1120" text-anchor="end">MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 1184 V 1214" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="1203">远端预检</text>
+
+            <g class="diamond">
+              <polygon points="390,1214 530,1266 390,1318 250,1266"></polygon>
+              <text class="node-title" x="390" y="1261" text-anchor="middle">需要用户确认？</text>
+              <text class="node-sub" x="390" y="1283" text-anchor="middle">分支缺失 / 远端同名文件</text>
+            </g>
+
+            <path class="edge" d="M 530 1266 H 650" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="575" y="1257">是</text>
+
+            <g class="branch warn">
+              <rect x="650" y="1206" width="480" height="120" rx="10"></rect>
+              <text class="b-title" x="670" y="1234">等待确认</text>
+              <text class="b-sub mono" x="670" y="1256">WAITING_FOR_BRANCH_CONFIRMATION</text>
+              <text class="b-sub mono" x="670" y="1274">WAITING_FOR_OVERWRITE_CONFIRMATION</text>
+              <text class="b-sub" x="670" y="1294">确认后继续；拒绝则任务停止</text>
+            </g>
+
+            <path class="edge" d="M 390 1318 V 1428" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="1345">否</text>
+
+            <!-- phase 03 -->
+            <text class="phase-label" x="24" y="1392">03 · 读取与一致性校验</text>
+            <line class="phase-rule" x1="24" y1="1404" x2="1136" y2="1404"></line>
+
+            <g class="node">
+              <rect class="box" x="190" y="1428" width="400" height="84" rx="10"></rect>
+              <text class="node-title" x="210" y="1454">uploadAndFinish：读取前二次校验</text>
+              <text class="node-sub mono" x="210" y="1475">fs.stat：size 与 mtimeMs 对比 baseline</text>
+              <text class="node-sub" x="210" y="1493">确认期间被修改 → FILE_CHANGED</text>
+              <text class="actor main" x="570" y="1448" text-anchor="end">MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 1512 V 1542" marker-end="url(#f1-arrow)"></path>
+
+            <g class="diamond">
+              <polygon points="390,1542 530,1594 390,1646 250,1594"></polygon>
+              <text class="node-title" x="390" y="1589" text-anchor="middle">文件仍未变化？</text>
+              <text class="node-sub" x="390" y="1611" text-anchor="middle">size / mtime 均未变化</text>
+            </g>
+
+            <path class="edge" d="M 530 1594 H 650" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="575" y="1585">否</text>
+
+            <g class="branch error">
+              <rect x="650" y="1554" width="480" height="80" rx="10"></rect>
+              <text class="b-title" x="670" y="1582">FILE_CHANGED</text>
+              <text class="b-sub" x="670" y="1604">丢弃本次读取，任务失败</text>
+              <text class="b-sub" x="670" y="1622">需重新发起任务</text>
+            </g>
+
+            <path class="edge" d="M 390 1646 V 1676" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="1665">是</text>
+
+            <g class="node accent">
+              <rect class="box" x="190" y="1676" width="400" height="90" rx="10"></rect>
+              <text class="node-title" x="210" y="1702">WhitelistedFileReader.read(...)</text>
+              <text class="node-sub" x="210" y="1723">参数：filePath、maxBytes（默认 50 MiB）</text>
+              <text class="node-sub" x="210" y="1741">由 TaskController 注入的 FileContentReader</text>
+              <text class="actor main" x="570" y="1696" text-anchor="end">MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 1766 V 1796" marker-end="url(#f1-arrow)"></path>
+
+            <g class="node subflow">
+              <rect class="box" x="190" y="1796" width="400" height="90" rx="10"></rect>
+              <text class="node-title" x="210" y="1822">选择读取通道并取得明文</text>
+              <text class="node-sub" x="210" y="1843">见 图 2 / 图 3：Node 解析与子进程协议</text>
+              <text class="node-sub" x="210" y="1861">读取失败 → 任务 FAILED，stage = CHECK</text>
+              <text class="actor" x="570" y="1816" text-anchor="end"><tspan fill="var(--accent)">MAIN</tspan><tspan fill="var(--node-color)"> → NODE</tspan></text>
+            </g>
+
+            <g class="annotation-block">
+              <text class="annotation-label" x="28" y="1755">IN MEMORY</text>
+              <text class="annotation" x="28" y="1777">读取结果只以 Buffer</text>
+              <text class="annotation" x="28" y="1794">形式存在，不写临时</text>
+              <text class="annotation" x="28" y="1811">明文文件。</text>
+              <line class="annotation-line" x1="176" y1="1685" x2="176" y2="1877"></line>
+            </g>
+
+            <path class="edge" d="M 390 1886 V 2016" marker-end="url(#f1-arrow)"></path>
+
+            <!-- phase 04 -->
+            <text class="phase-label" x="24" y="1980">04 · 读后校验与交付</text>
+            <line class="phase-rule" x1="24" y1="1992" x2="1136" y2="1992"></line>
+
+            <g class="node">
+              <rect class="box" x="190" y="2016" width="400" height="90" rx="10"></rect>
+              <text class="node-title" x="210" y="2042">读取后一致性校验</text>
+              <text class="node-sub" x="210" y="2063">再次 fs.stat：仍为普通文件且 size 未变化</text>
+              <text class="node-sub mono" x="210" y="2081">content.length ∈ (0, maxUploadBytes]</text>
+              <text class="actor main" x="570" y="2036" text-anchor="end">MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 2106 V 2136" marker-end="url(#f1-arrow)"></path>
+
+            <g class="diamond">
+              <polygon points="390,2136 530,2188 390,2240 250,2188"></polygon>
+              <text class="node-title" x="390" y="2183" text-anchor="middle">校验通过？</text>
+              <text class="node-sub" x="390" y="2205" text-anchor="middle">内容长度与磁盘状态</text>
+            </g>
+
+            <path class="edge" d="M 530 2188 H 650" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="575" y="2179">否</text>
+
+            <g class="branch error">
+              <rect x="650" y="2143" width="480" height="90" rx="10"></rect>
+              <text class="b-title" x="670" y="2171">任务失败 · stage = CHECK</text>
+              <text class="b-sub mono" x="670" y="2193">FILE_CHANGED / FILE_INVALID</text>
+              <text class="b-sub mono" x="670" y="2211">FILE_TOO_LARGE / FILE_READ_FAILED</text>
+            </g>
+
+            <path class="edge" d="M 390 2240 V 2270" marker-end="url(#f1-arrow)"></path>
+            <text class="edge-label" x="402" y="2259">是</text>
+
+            <g class="node">
+              <rect class="box" x="190" y="2270" width="400" height="90" rx="10"></rect>
+              <text class="node-title" x="210" y="2296">Buffer → Base64</text>
+              <text class="node-sub mono" x="210" y="2317">content.toString('base64')</text>
+              <text class="node-sub" x="210" y="2335">作为 GitLab File API 的 content</text>
+              <text class="actor main" x="570" y="2290" text-anchor="end">MAIN</text>
+            </g>
+
+            <path class="edge" d="M 390 2360 V 2390" marker-end="url(#f1-arrow)"></path>
+
+            <g class="node">
+              <rect class="box" x="190" y="2390" width="400" height="70" rx="10"></rect>
+              <text class="node-title" x="210" y="2416">交给上传接口</text>
+              <text class="node-sub mono" x="210" y="2437">POST / PUT / repository/commits</text>
+              <text class="actor gitlab" x="570" y="2410" text-anchor="end">GITLAB</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>
+          图 1 · 从选择文件到把明文 Buffer 交给上传接口。右侧是失败、等待与需要确认的分支；
+          这些分支都不会进入实际读取。读取通道的选择展开为图 2，进程间协议展开为图 3。
+        </figcaption>
+      </figure>
+    </section>
+
+    <section class="section" aria-labelledby="reader-title">
+      <div class="section-head">
+        <p class="kicker">Reader</p>
+        <h2 id="reader-title">读取通道解析</h2>
+        <p class="section-lede">
+          Electron 主进程不在 DSM 白名单内，直接 <code>fs.readFile</code> 只能得到密文。
+          读取器按固定优先级寻找一个白名单 Node，并通过子进程 stdout 取回明文。
+        </p>
+      </div>
+
+      <figure class="figure">
+        <div class="figure-toolbar">
+          <div class="legend" aria-hidden="true">
+            <span class="legend-item"><i class="dot main"></i>使用该 Node</span>
+            <span class="legend-item"><i class="dot danger"></i>直接失败</span>
+          </div>
+          <span class="figure-tag">图 2 / 3</span>
+        </div>
+        <div class="diagram-scroll">
+          <svg class="flow-svg compact" viewBox="0 0 1160 740" role="img" aria-label="读取通道解析决策图：显式配置路径优先，其次环境变量，最后自动探测；显式配置或环境变量不可执行、以及自动探测失败时，均直接失败，不回退主进程直读">
+            <defs>
+              <marker id="f2-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path class="arrow-head" d="M 0 0 L 10 5 L 0 10 Z"></path>
+              </marker>
+            </defs>
+
+            <text class="mini-heading" x="40" y="24">按优先级依次尝试 · 命中即停止</text>
+
+            <!-- priority 01 -->
+            <text class="priority" x="100" y="86" text-anchor="middle">01</text>
+
+            <g class="diamond">
+              <polygon points="350,36 500,80 350,124 200,80"></polygon>
+              <text class="node-title" x="350" y="76" text-anchor="middle">配置了读取 Node？</text>
+              <text class="node-sub mono" x="350" y="98" text-anchor="middle">config.nodeReaderPath</text>
+            </g>
+
+            <g class="diamond">
+              <polygon points="750,36 860,80 750,124 640,80"></polygon>
+              <text class="node-title" x="750" y="76" text-anchor="middle">可执行？</text>
+              <text class="node-sub mono" x="750" y="98" text-anchor="middle">node -p … · 5 s</text>
+            </g>
+
+            <g class="node accent">
+              <rect class="box" x="920" y="38" width="220" height="84" rx="10"></rect>
+              <text class="node-title" x="940" y="64">使用该 Node</text>
+              <text class="node-sub mono" x="940" y="85">source = config</text>
+              <text class="node-sub" x="940" y="103">进入子进程读取</text>
+            </g>
+
+            <g class="branch error">
+              <rect x="610" y="150" width="280" height="64" rx="10"></rect>
+              <text class="b-title" x="630" y="176">READER_UNAVAILABLE</text>
+              <text class="b-sub" x="630" y="196">显式配置不可执行：直接失败，不回退</text>
+            </g>
+
+            <path class="edge" d="M 500 80 H 640" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="570" y="71" text-anchor="middle">是</text>
+            <path class="edge" d="M 860 80 H 920" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="890" y="71" text-anchor="middle">是</text>
+            <path class="edge" d="M 750 124 V 150" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="762" y="142">否</text>
+            <path class="edge" d="M 350 124 V 260" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="362" y="198">否</text>
+
+            <!-- priority 02 -->
+            <text class="priority" x="100" y="310" text-anchor="middle">02</text>
+
+            <g class="diamond">
+              <polygon points="350,260 500,304 350,348 200,304"></polygon>
+              <text class="node-title" x="350" y="300" text-anchor="middle">设置了 DSM_NODE_PATH？</text>
+              <text class="node-sub mono" x="350" y="322" text-anchor="middle">环境变量</text>
+            </g>
+
+            <g class="diamond">
+              <polygon points="750,260 860,304 750,348 640,304"></polygon>
+              <text class="node-title" x="750" y="300" text-anchor="middle">可执行？</text>
+              <text class="node-sub mono" x="750" y="322" text-anchor="middle">node -p … · 5 s</text>
+            </g>
+
+            <g class="node accent">
+              <rect class="box" x="920" y="262" width="220" height="84" rx="10"></rect>
+              <text class="node-title" x="940" y="288">使用该 Node</text>
+              <text class="node-sub mono" x="940" y="309">source = environment</text>
+              <text class="node-sub" x="940" y="327">进入子进程读取</text>
+            </g>
+
+            <g class="branch error">
+              <rect x="610" y="374" width="280" height="64" rx="10"></rect>
+              <text class="b-title" x="630" y="400">READER_UNAVAILABLE</text>
+              <text class="b-sub" x="630" y="420">环境变量不可执行：直接失败，不回退</text>
+            </g>
+
+            <path class="edge" d="M 500 304 H 640" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="570" y="295" text-anchor="middle">是</text>
+            <path class="edge" d="M 860 304 H 920" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="890" y="295" text-anchor="middle">是</text>
+            <path class="edge" d="M 750 348 V 374" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="762" y="366">否</text>
+            <path class="edge" d="M 350 348 V 484" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="362" y="420">否</text>
+
+            <!-- priority 03 -->
+            <text class="priority" x="100" y="534" text-anchor="middle">03</text>
+
+            <g class="diamond">
+              <polygon points="350,484 510,528 350,572 190,528"></polygon>
+              <text class="node-title" x="350" y="524" text-anchor="middle">自动探测到 Node？</text>
+              <text class="node-sub mono" x="350" y="546" text-anchor="middle">PATH · 安装目录 · nvm</text>
+            </g>
+
+            <g class="node accent">
+              <rect class="box" x="920" y="486" width="220" height="84" rx="10"></rect>
+              <text class="node-title" x="940" y="512">使用该 Node</text>
+              <text class="node-sub mono" x="940" y="533">source = auto</text>
+              <text class="node-sub" x="940" y="551">进入子进程读取</text>
+            </g>
+
+            <g class="branch error">
+              <rect x="110" y="610" width="480" height="90" rx="10"></rect>
+              <text class="b-title" x="130" y="638">READER_UNAVAILABLE</text>
+              <text class="b-sub" x="130" y="660">自动探测没有找到可执行的 Node</text>
+              <text class="b-sub" x="130" y="678">直接失败，不回退主进程直读</text>
+            </g>
+
+            <path class="edge" d="M 510 528 H 920" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="600" y="519">是</text>
+            <path class="edge" d="M 350 572 V 610" marker-end="url(#f2-arrow)"></path>
+            <text class="edge-label" x="362" y="596">否</text>
+          </svg>
+        </div>
+        <figcaption>
+          图 2 · 读取通道的解析优先级。显式配置或环境变量不可执行，以及自动探测失败时，
+          都直接失败；不会回退主进程直读。
+        </figcaption>
+      </figure>
+
+      <ol class="detail-list">
+        <li>
+          <div>
+            <strong>解析顺序</strong>
+            设置页的 <code>config.nodeReaderPath</code> → 环境变量 <code>DSM_NODE_PATH</code> →
+            自动探测。解析成功后缓存结果；版本探测使用 <code>node -p process.versions.node</code>，
+            超时 5 秒。
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>读取通道不可用即失败</strong>
+            显式配置或环境变量不可执行，或自动探测找不到 Node 时，抛出
+            <code>READER_UNAVAILABLE</code>，任务在读取前失败。应用不会回退主进程直读，
+            从而避免静默读取密文并上传。
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>自动探测候选</strong>
+            系统 <code>PATH</code> 中的每个目录；Windows 额外检查 Program Files、
+            <code>LOCALAPPDATA</code> 与 <code>APPDATA</code> 下的 Node 安装位置；macOS / Linux
+            额外检查 <code>/opt/homebrew/bin</code>、<code>/usr/local/bin</code>、
+            <code>/usr/bin</code> 以及 <code>~/.nvm/versions/node/*/bin</code>。
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>用读取测试确认白名单</strong>
+            设置页的「选择文件测试」会分别用主进程和 Node 读取同一文件，显示大小、SHA-256
+            与文件头。两者内容不同通常说明 Node 已拿到明文；内容相同则说明文件未受控，或该
+            Node 不在 DSM 白名单中。
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="section" aria-labelledby="protocol-title">
+      <div class="section-head">
+        <p class="kicker">Protocol</p>
+        <h2 id="protocol-title">子进程读取协议</h2>
+        <p class="section-lede">
+          外部 Node 只做一件事：把文件原始字节写到 stdout。日志和错误全部走 stderr，
+          避免污染二进制内容；主进程负责超时、超限和退出码处理。
+        </p>
+      </div>
+
+      <figure class="figure">
+        <div class="figure-toolbar">
+          <div class="legend" aria-hidden="true">
+            <span class="legend-item"><i class="dot main"></i>Electron Main</span>
+            <span class="legend-item"><i class="dot node"></i>外部 Node</span>
+            <span class="legend-item"><i class="dot gitlab"></i>受控文件</span>
+          </div>
+          <span class="figure-tag">图 3 / 3</span>
+        </div>
+        <div class="diagram-scroll">
+          <svg class="flow-svg compact" viewBox="0 0 1160 660" role="img" aria-label="主进程与外部 Node 读取代理之间的时序图：spawn、读取、stdout 返回字节、stderr 返回错误、退出码与超时处理">
+            <defs>
+              <marker id="f3-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path class="arrow-head" d="M 0 0 L 10 5 L 0 10 Z"></path>
+              </marker>
+              <marker id="f3-arrow-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path class="arrow-head danger" d="M 0 0 L 10 5 L 0 10 Z"></path>
+              </marker>
+            </defs>
+
+            <g class="participant">
+              <rect class="box" x="140" y="20" width="240" height="68" rx="10"></rect>
+              <text class="node-title" x="260" y="48" text-anchor="middle">Electron Main</text>
+              <text class="node-sub mono" x="260" y="69" text-anchor="middle">whitelisted-file-reader.ts</text>
+            </g>
+            <g class="participant">
+              <rect class="box" x="520" y="20" width="260" height="68" rx="10"></rect>
+              <text class="node-title" x="650" y="48" text-anchor="middle">外部 Node 进程</text>
+              <text class="node-sub mono" x="650" y="69" text-anchor="middle">dsm-file-reader.cjs</text>
+            </g>
+            <g class="participant">
+              <rect class="box" x="890" y="20" width="220" height="68" rx="10"></rect>
+              <text class="node-title" x="1000" y="48" text-anchor="middle">受控文件</text>
+              <text class="node-sub mono" x="1000" y="69" text-anchor="middle">DSM 透明解密</text>
+            </g>
+
+            <line class="lifeline" x1="260" y1="88" x2="260" y2="630"></line>
+            <line class="lifeline" x1="650" y1="88" x2="650" y2="630"></line>
+            <line class="lifeline" x1="1000" y1="88" x2="1000" y2="630"></line>
+
+            <path class="edge" d="M 260 130 H 650" marker-end="url(#f3-arrow)"></path>
+            <text class="msg-label" x="455" y="120" text-anchor="middle">spawn(node, [helper, filePath, maxBytes])</text>
+            <text class="msg-sub" x="455" y="148" text-anchor="middle">shell = false · 最小环境变量 · windowsHide</text>
+
+            <path class="edge" d="M 650 200 H 1000" marker-end="url(#f3-arrow)"></path>
+            <text class="msg-label" x="825" y="190" text-anchor="middle">fs.statSync + createReadStream</text>
+
+            <path class="edge return" d="M 1000 260 H 650" marker-end="url(#f3-arrow)"></path>
+            <text class="msg-label" x="825" y="250" text-anchor="middle">明文字节流（白名单进程解密）</text>
+
+            <path class="edge" d="M 650 330 H 260" marker-end="url(#f3-arrow)"></path>
+            <text class="msg-label" x="455" y="320" text-anchor="middle">stdout：原始字节分块</text>
+            <text class="msg-sub" x="455" y="348" text-anchor="middle">背压：write 返回 false → pause；drain → resume</text>
+
+            <path class="edge" d="M 650 400 H 260" marker-end="url(#f3-arrow)"></path>
+            <text class="msg-label" x="455" y="390" text-anchor="middle">stderr：结构化错误 JSON</text>
+            <text class="msg-sub" x="455" y="418" text-anchor="middle">最多保留 8 KiB</text>
+
+            <path class="edge" d="M 650 460 H 260" marker-end="url(#f3-arrow)"></path>
+            <text class="msg-label" x="455" y="450" text-anchor="middle">退出码：0 成功 · 1 读取失败 · 2 超限</text>
+
+            <path class="edge danger" d="M 260 520 H 650" marker-end="url(#f3-arrow-danger)"></path>
+            <text class="msg-label" x="455" y="510" text-anchor="middle">120 s 超时 → SIGKILL</text>
+
+            <g class="note">
+              <rect x="30" y="552" width="210" height="76" rx="8"></rect>
+              <text x="44" y="574">主进程累计</text>
+              <text x="44" y="592">stdout &gt; maxBytes</text>
+              <text x="44" y="610">→ SIGKILL · FILE_TOO_LARGE</text>
+            </g>
+
+            <g class="note">
+              <rect x="680" y="552" width="210" height="76" rx="8"></rect>
+              <text x="694" y="574">辅助脚本约束</text>
+              <text x="694" y="592">stdout 只写原始字节</text>
+              <text x="694" y="610">stderr 只写错误 JSON</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>
+          图 3 · Electron Main 与读取代理之间的进程协议。stdout 只承载文件字节，stderr 只承载
+          结构化错误；主进程负责超时、超限与退出码处理。
+        </figcaption>
+      </figure>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>触发</th>
+              <th>辅助进程行为</th>
+              <th>主进程结果</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>正常结束，stdout 非空</td>
+              <td>写完全部字节，exit 0</td>
+              <td><code>Buffer.concat</code> → 读取成功</td>
+            </tr>
+            <tr>
+              <td>正常结束，stdout 为空</td>
+              <td>exit 0</td>
+              <td><code>FILE_READ_FAILED</code>「未返回内容」</td>
+            </tr>
+            <tr>
+              <td>读取失败</td>
+              <td>stderr 输出 <code>FILE_READ_FAILED</code> JSON，exit 1</td>
+              <td><code>FILE_READ_FAILED</code>，阶段 CHECK</td>
+            </tr>
+            <tr>
+              <td>超过大小上限</td>
+              <td>销毁流，stderr 输出 <code>FILE_TOO_LARGE</code>，exit 2</td>
+              <td><code>FILE_TOO_LARGE</code></td>
+            </tr>
+            <tr>
+              <td>超时 120 秒</td>
+              <td>主进程向子进程发送 SIGKILL</td>
+              <td><code>FILE_READ_FAILED</code>「读取文件超时」</td>
+            </tr>
+            <tr>
+              <td>stdout 累计超限</td>
+              <td>主进程向子进程发送 SIGKILL</td>
+              <td><code>FILE_TOO_LARGE</code></td>
+            </tr>
+            <tr>
+              <td>非零退出且 stderr 不是 JSON</td>
+              <td>—</td>
+              <td><code>FILE_READ_FAILED</code>，错误信息包含退出码</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="constraints-title">
+      <div class="section-head">
+        <p class="kicker">Checks</p>
+        <h2 id="constraints-title">失败分支与约束</h2>
+        <p class="section-lede">
+          读取不是一次孤立的 <code>fs.readFile</code>：文件状态、大小上限和进程边界都在不同
+          层重复检查，任何一层失败都会让任务停在读取阶段之前或之后。
+        </p>
+      </div>
+
+      <div class="constraint-grid">
+        <article class="constraint">
+          <h3>三次 stat</h3>
+          <p>
+            选择文件时预检；任务启动时记录 baseline（size + mtimeMs）；读取前与 baseline 对比，
+            读取后再确认磁盘状态。读取后只比较 size，因为透明加密下明文长度可能与磁盘密文不同。
+          </p>
+        </article>
+        <article class="constraint">
+          <h3>三处大小上限</h3>
+          <p>
+            <code>inspectLocalFile</code> 预检、辅助进程流式计数、主进程 stdout 累计。
+            默认上限 50 MiB，任一处超限都会中止读取。
+          </p>
+        </article>
+        <article class="constraint">
+          <h3>明文不落盘</h3>
+          <p>
+            内容只经过 stdout 管道进入主进程 Buffer，再编码为 Base64 交给 HTTP 请求；
+            不写临时明文文件，避免被重新加密或残留。
+          </p>
+        </article>
+        <article class="constraint">
+          <h3>读取失败没有自动恢复</h3>
+          <p>
+            读取相关错误统一标记为 <code>stage = CHECK</code>，任务进入 FAILED。恢复动作表里没有
+            读取阶段的重试项，需要用户重新发起任务。
+          </p>
+        </article>
+        <article class="constraint">
+          <h3>显式配置优先于可用性</h3>
+          <p>
+            用户配置了白名单 Node 却不可执行时，任务直接失败，不会回退到主进程直读。
+            这是为了避免在不知情的情况下上传密文。
+          </p>
+        </article>
+        <article class="constraint">
+          <h3>自动探测失败也直接失败</h3>
+          <p>
+            未配置且自动探测不到 Node 时，任务在读取前失败。应用不会回退主进程直读，
+            避免在 DSM 环境中读到密文后继续上传；设置页的读取测试用于确认白名单是否生效。
+          </p>
+        </article>
+      </div>
+
+      <ul class="sources">
+        <li>
+          <code>apps/desktop/src/renderer/UploadPage.tsx</code>
+          <span>选择、拖拽、启动任务</span>
+          <span class="lines">30–65</span>
+        </li>
+        <li>
+          <code>apps/desktop/src/main/ipc.ts</code>
+          <span>IPC 来源校验、本地文件预检</span>
+          <span class="lines">63–78, 244–267</span>
+        </li>
+        <li>
+          <code>packages/core/src/task-controller.ts</code>
+          <span>baseline、读取前后校验、Buffer 交付</span>
+          <span class="lines">85–160, 311–378</span>
+        </li>
+        <li>
+          <code>apps/desktop/src/main/whitelisted-file-reader.ts</code>
+          <span>读取通道选择、子进程超时与错误映射</span>
+          <span class="lines">40–67, 135–226</span>
+        </li>
+        <li>
+          <code>apps/desktop/src/main/node-path.ts</code>
+          <span>Node 解析优先级与自动探测候选</span>
+          <span class="lines">30–53, 85–130</span>
+        </li>
+        <li>
+          <code>resources/dsm-file-reader.cjs</code>
+          <span>stdout 字节流、stderr 错误 JSON、退出码</span>
+          <span class="lines">18–104</span>
+        </li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <span>依据当前 main 分支代码整理</span>
+    <span>2026-11-07</span>
+  </footer>
+</div>

@@ -16,7 +16,7 @@ export interface AppConfig {
   saveDirectory: string | null;
   /**
    * DSM 白名单中的 Node 可执行文件路径。为 null 时由桌面端自动探测，
-   * 探测失败则回退为主进程直接读取。
+   * 探测失败则任务在读取前失败。
    */
   nodeReaderPath: string | null;
   apiTimeoutMs: number;

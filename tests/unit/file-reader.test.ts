@@ -3,7 +3,12 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { DsmError } from '@dsm/core';
+
+import { WhitelistedFileReader } from '../../apps/desktop/src/main/whitelisted-file-reader.ts';
+import { NodeExecutableResolver } from '../../apps/desktop/src/main/node-path.ts';
 
 const helperPath = path.resolve('resources/dsm-file-reader.cjs');
 const temporaryDirectories: string[] = [];
@@ -92,5 +97,33 @@ describe('dsm-file-reader helper', () => {
 
     expect(result.code).toBe(1);
     expect(JSON.parse(result.stderr).code).toBe('FILE_READ_FAILED');
+  });
+});
+
+describe('WhitelistedFileReader', () => {
+  it('fails without reading locally when auto detection finds no Node', async () => {
+    vi.spyOn(NodeExecutableResolver.prototype, 'resolve').mockResolvedValue(null);
+
+    const reader = new WhitelistedFileReader({
+      helperPath,
+      getConfiguredNodePath: async () => null,
+    });
+    // 路径故意不存在：旧实现会回退 fs.readFile 并抛出 ENOENT，
+    // 现在必须在触碰文件系统之前以 READER_UNAVAILABLE 失败。
+    const missingPath = path.join(
+      os.tmpdir(),
+      `dsm-reader-missing-${Date.now()}.txt`,
+    );
+
+    const error: unknown = await reader
+      .read(missingPath, { maxBytes: 1024 })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(DsmError);
+    expect(error).toMatchObject({
+      code: 'READER_UNAVAILABLE',
+      stage: 'CHECK',
+    });
+    expect((error as Error).message).toContain('未找到可用的 Node');
   });
 });

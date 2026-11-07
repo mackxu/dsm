@@ -208,7 +208,7 @@ export function SettingsPage({
               </div>
               <small>
                 填写 DSM 进程白名单中的 node
-                绝对路径。留空时自动探测，找不到则回退主进程读取。
+                绝对路径。留空时自动探测，找不到则任务直接失败。
               </small>
             </label>
             <label className="toggle-field">
