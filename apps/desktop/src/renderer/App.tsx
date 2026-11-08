@@ -21,7 +21,6 @@ const ACTIVE_STATUSES: ReadonlySet<TaskSnapshot['status']> = new Set([
   'CHECKING',
   'WAITING_FOR_TOKEN',
   'WAITING_FOR_OVERWRITE_CONFIRMATION',
-  'WAITING_FOR_BRANCH_CONFIRMATION',
   'UPLOADING',
   'UPLOADED',
   'DOWNLOADING',
@@ -144,7 +143,14 @@ export function App(): React.JSX.Element {
       <header className="app-bar drag-region">
         {page === 'upload' ? (
           <div className="brand">
-            <div className="brand-mark">DSM</div>
+            <button
+              type="button"
+              className="brand-mark brand-mark-button"
+              title="打开设置"
+              onClick={() => setPage('settings')}
+            >
+              DSM
+            </button>
             <strong>文件同步助手</strong>
           </div>
         ) : (
@@ -165,22 +171,13 @@ export function App(): React.JSX.Element {
             <span className={active ? 'pulse active' : 'pulse'} />
           </div>
           {page === 'upload' && (
-            <>
-              <button
-                type="button"
-                className="bar-button"
-                onClick={() => setPage('logs')}
-              >
-                日志
-              </button>
-              <button
-                type="button"
-                className="bar-button"
-                onClick={() => setPage('settings')}
-              >
-                设置
-              </button>
-            </>
+            <button
+              type="button"
+              className="bar-button"
+              onClick={() => setPage('logs')}
+            >
+              日志
+            </button>
           )}
         </div>
       </header>

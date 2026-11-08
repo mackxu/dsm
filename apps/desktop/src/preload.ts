@@ -17,17 +17,8 @@ const api: DesktopApi = {
   clearToken: () => ipcRenderer.invoke('dsm:clear-token'),
   startTask: (filePath: string) =>
     ipcRenderer.invoke('dsm:start-task', filePath),
-  confirmTask: (
-    taskId: string,
-    allowOverwrite: boolean,
-    allowCreateBranch: boolean,
-  ) =>
-    ipcRenderer.invoke(
-      'dsm:confirm-task',
-      taskId,
-      allowOverwrite,
-      allowCreateBranch,
-    ),
+  confirmTask: (taskId: string, allowOverwrite: boolean) =>
+    ipcRenderer.invoke('dsm:confirm-task', taskId, allowOverwrite),
   recoverTask: (taskId: string, action: RecoveryAction) =>
     ipcRenderer.invoke('dsm:recover-task', taskId, action),
   getCurrentTask: () => ipcRenderer.invoke('dsm:current-task'),

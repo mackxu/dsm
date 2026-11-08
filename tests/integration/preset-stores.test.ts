@@ -37,7 +37,6 @@ describe('ConfigStore preset handling', () => {
     const { userDataDirectory, presetPath } = await prepare({
       gitlabUrl: 'https://gitlab.example.com/',
       projectId: 'group/project',
-      branch: 'release',
     });
     const store = new ConfigStore(
       userDataDirectory,
@@ -47,14 +46,12 @@ describe('ConfigStore preset handling', () => {
     const config = await store.load();
     expect(config.gitlabUrl).toBe('https://gitlab.example.com');
     expect(config.projectId).toBe('group/project');
-    expect(config.branch).toBe('release');
   });
 
   it('keeps user settings after the user saves them', async () => {
     const { userDataDirectory, presetPath } = await prepare({
       gitlabUrl: 'https://preset.example.com',
       projectId: '1',
-      branch: 'preset',
     });
     const store = new ConfigStore(
       userDataDirectory,
@@ -66,7 +63,6 @@ describe('ConfigStore preset handling', () => {
         ...DEFAULT_CONFIG,
         gitlabUrl: 'https://user.example.com',
         projectId: '2',
-        branch: 'user',
       },
       userDataDirectory,
     );
@@ -78,7 +74,6 @@ describe('ConfigStore preset handling', () => {
     const config = await reloaded.load();
     expect(config.gitlabUrl).toBe('https://user.example.com');
     expect(config.projectId).toBe('2');
-    expect(config.branch).toBe('user');
   });
 
   it('falls back to defaults when the preset is missing or invalid', async () => {
@@ -87,7 +82,9 @@ describe('ConfigStore preset handling', () => {
       missing.userDataDirectory,
       new PresetStore(missing.presetPath),
     );
-    expect((await missingStore.load()).branch).toBe(DEFAULT_CONFIG.branch);
+    expect((await missingStore.load()).projectId).toBe(
+      DEFAULT_CONFIG.projectId,
+    );
 
     const invalid = await prepare({ gitlabUrl: 'ftp://gitlab.example.com' });
     const invalidStore = new ConfigStore(

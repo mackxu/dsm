@@ -1,9 +1,12 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
+  BASE_BRANCH_NAME,
   createDefaultConfig,
   GitLabClient,
+  resolveClientBranchNamespace,
   validateAppConfig,
   type HttpTransport,
 } from '../packages/core/src/index.ts';
@@ -14,7 +17,6 @@ const config = validateAppConfig(
     ...createDefaultConfig(),
     gitlabUrl: env.GITLAB_URL,
     projectId: env.PROJECT_ID,
-    branch: env.BRANCH_NAME || 'main',
   },
   { requireRemote: true },
 );
@@ -23,6 +25,14 @@ const token = env.GIT_TOKEN?.trim() ?? '';
 if (!token) {
   throw new Error('GIT_TOKEN is missing from .env');
 }
+
+const clientBranchNamespace =
+  process.env.DSM_CLIENT_BRANCH?.trim() ||
+  resolveClientBranchNamespace({
+    username: os.userInfo().username,
+    hostname: os.hostname(),
+  });
+const probeBranch = `${clientBranchNamespace}/probe-${Date.now()}`;
 
 let transportError: unknown;
 const transport: HttpTransport = {
@@ -35,7 +45,12 @@ const transport: HttpTransport = {
     }
   },
 };
-const client = GitLabClient.fromConfig(config, token, transport);
+const client = GitLabClient.fromConfig(
+  config,
+  token,
+  transport,
+  probeBranch,
+);
 let result;
 try {
   result = await client.testConnection();
@@ -82,8 +97,10 @@ console.log(
       userId: result.user.id,
       project: result.project.path_with_namespace,
       projectId: result.project.id,
-      targetBranch: config.branch,
-      branchExists: Boolean(result.branch),
+      clientBranchNamespace,
+      probeBranch,
+      baseBranch: BASE_BRANCH_NAME,
+      baseBranchExists: Boolean(result.baseBranch),
       defaultBranch: result.project.default_branch,
       emptyRepository: result.project.empty_repo,
       ...(preparation

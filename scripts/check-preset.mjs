@@ -47,7 +47,6 @@ function parsePreset(raw) {
   return {
     gitlabUrl: normalizeGitLabUrl(stringValue(input.gitlabUrl, 'gitlabUrl')),
     projectId: normalizeProjectId(stringValue(input.projectId, 'projectId')),
-    branch: normalizeBranch(stringValue(input.branch, 'branch')),
     token: stringValue(input.token, 'token'),
   };
 }
@@ -92,16 +91,6 @@ function normalizeProjectId(value) {
   }
   if (/\s/.test(value) || value.startsWith('/')) {
     throw new Error(`${presetPath} 的 projectId 格式无效`);
-  }
-  return value;
-}
-
-function normalizeBranch(value) {
-  if (!value) {
-    return '';
-  }
-  if (/\s/.test(value)) {
-    throw new Error(`${presetPath} 的 branch 不能包含空白`);
   }
   return value;
 }

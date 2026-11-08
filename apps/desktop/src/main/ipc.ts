@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
   ACTIVE_TASK_STATUSES,
+  BASE_BRANCH_NAME,
   DsmError,
   GitLabClient,
   isRemoteConfigReady,
@@ -44,6 +45,7 @@ export interface IpcServices {
   taskHistory: TaskHistoryStore;
   fileReader: WhitelistedFileReader;
   documentsDirectory: string;
+  clientBranchNamespace: string;
   appVersion: string;
   platformLabel: string;
 }
@@ -178,10 +180,9 @@ export function setupIpc(services: IpcServices): void {
 
   handle(
     'dsm:confirm-task',
-    async (_event, taskId, allowOverwrite, allowCreateBranch) =>
+    async (_event, taskId, allowOverwrite) =>
       services.taskController.confirm(requireString(taskId, '任务 ID'), {
         allowOverwrite: allowOverwrite === true,
-        allowCreateBranch: allowCreateBranch === true,
       }),
   );
 
@@ -259,6 +260,8 @@ async function bootstrap(services: IpcServices): Promise<BootstrapData> {
     token: await services.tokenStore.getStatus(),
     appVersion: services.appVersion,
     platformLabel: services.platformLabel,
+    clientBranchNamespace: services.clientBranchNamespace,
+    baseBranch: BASE_BRANCH_NAME,
     currentTask: services.taskController.getCurrentTask(),
     recentTasks: await services.taskHistory.list(),
   };
@@ -294,7 +297,12 @@ async function testConnection(
   token: string,
   services: IpcServices,
 ): Promise<ConnectionResult> {
-  const client = GitLabClient.fromConfig(config, token, services.transport);
+  const client = GitLabClient.fromConfig(
+    config,
+    token,
+    services.transport,
+    BASE_BRANCH_NAME,
+  );
   const result = await client.testConnection();
   await services.logger.log('INFO', 'CONFIG', '连接验证成功');
   return {
@@ -302,7 +310,7 @@ async function testConnection(
     userId: result.user.id,
     projectPath: result.project.path_with_namespace,
     projectId: result.project.id,
-    branchExists: Boolean(result.branch),
+    baseBranchExists: !result.project.empty_repo && Boolean(result.baseBranch),
     defaultBranch: result.project.default_branch,
   };
 }

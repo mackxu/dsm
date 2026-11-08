@@ -35,6 +35,8 @@ export interface BootstrapData {
   token: TokenStatus;
   appVersion: string;
   platformLabel: string;
+  clientBranchNamespace: string;
+  baseBranch: string;
   currentTask: TaskSnapshot | null;
   recentTasks: TaskSnapshot[];
 }
@@ -44,7 +46,7 @@ export interface ConnectionResult {
   userId: number;
   projectPath: string;
   projectId: number;
-  branchExists: boolean;
+  baseBranchExists: boolean;
   defaultBranch: string | null;
 }
 
@@ -89,7 +91,6 @@ export interface DesktopApi {
   confirmTask(
     taskId: string,
     allowOverwrite: boolean,
-    allowCreateBranch: boolean,
   ): Promise<ApiResult<TaskSnapshot>>;
   recoverTask(
     taskId: string,

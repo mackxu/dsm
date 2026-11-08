@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import type { AppConfig } from '../config.ts';
+import { BASE_BRANCH_NAME } from '../client-branch.ts';
 import {
   DsmError,
   type DsmErrorCode,
@@ -31,6 +32,7 @@ export interface GitLabBranch {
   name: string;
   default: boolean;
   protected: boolean;
+  commit?: { id: string };
 }
 
 export interface GitLabCommit {
@@ -58,7 +60,6 @@ export interface UploadRequest {
   fileName: string;
   contentBase64: string;
   taskMarker: string;
-  branchExists: boolean;
   branchMissing: boolean;
   fileExists: boolean;
   lastCommitId: string | null;
@@ -81,7 +82,7 @@ export interface GitLabClientOptions {
   baseUrl: string;
   token: string;
   projectId: string;
-  branch: string;
+  clientBranch: string;
   apiTimeoutMs: number;
   downloadTimeoutMs: number;
 }
@@ -139,7 +140,7 @@ export class GitLabClient {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly projectId: string;
-  private readonly branch: string;
+  private readonly clientBranch: string;
 
   constructor(private readonly options: GitLabClientOptions) {
     if (!options.token) {
@@ -148,20 +149,21 @@ export class GitLabClient {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.token = options.token;
     this.projectId = options.projectId;
-    this.branch = options.branch;
+    this.clientBranch = options.clientBranch;
   }
 
   static fromConfig(
     config: AppConfig,
     token: string,
     transport: HttpTransport,
+    clientBranch: string,
   ): GitLabClient {
     return new GitLabClient({
       transport,
       baseUrl: config.gitlabUrl,
       token,
       projectId: config.projectId,
-      branch: config.branch,
+      clientBranch,
       apiTimeoutMs: config.apiTimeoutMs,
       downloadTimeoutMs: config.downloadTimeoutMs,
     });
@@ -175,10 +177,10 @@ export class GitLabClient {
     return this.getJson<GitLabProject>(this.projectBase());
   }
 
-  async getBranch(): Promise<GitLabBranch | null> {
+  async getBranch(name = this.clientBranch): Promise<GitLabBranch | null> {
     try {
       return await this.getJson<GitLabBranch>(
-        `${this.projectBase()}/repository/branches/${encodeSegment(this.branch)}`,
+        `${this.projectBase()}/repository/branches/${encodeSegment(name)}`,
       );
     } catch (error) {
       if (error instanceof GitLabApiError && error.responseStatus === 404) {
@@ -188,28 +190,24 @@ export class GitLabClient {
     }
   }
 
-  async listBranches(): Promise<GitLabBranch[]> {
-    return this.getJson<GitLabBranch[]>(
-      `${this.projectBase()}/repository/branches?per_page=100`,
-    );
-  }
-
   async testConnection(): Promise<{
     user: GitLabUser;
     project: GitLabProject;
-    branch: GitLabBranch | null;
+    baseBranch: GitLabBranch | null;
   }> {
-    const [user, project, branch] = await Promise.all([
+    const [user, project] = await Promise.all([
       this.getCurrentUser(),
       this.getProject(),
-      this.getBranch(),
     ]);
-    return { user, project, branch };
+    const baseBranch = project.empty_repo
+      ? null
+      : await this.getBranch(BASE_BRANCH_NAME);
+    return { user, project, baseBranch };
   }
 
   async getFileMetadata(fileName: string): Promise<FileMetadata> {
     const response = await this.requestRaw(
-      `${this.fileApiPath(fileName)}?ref=${encodeSegment(this.branch)}`,
+      `${this.fileApiPath(fileName)}?ref=${encodeSegment(this.clientBranch)}`,
       { method: 'HEAD' },
       true,
     );
@@ -230,15 +228,22 @@ export class GitLabClient {
   async prepareUpload(fileName: string): Promise<UploadPreparation> {
     const project = await this.getProject();
     const branch = await this.getBranch();
-    let sourceBranch: string | null = project.default_branch;
-    if (!branch && !sourceBranch) {
-      const branches = await this.listBranches();
-      sourceBranch = branches[0]?.name ?? null;
+    let sourceBranch: string | null = null;
+    if (!branch && !project.empty_repo) {
+      const baseBranch = await this.getBranch(BASE_BRANCH_NAME);
+      if (!baseBranch) {
+        throw new DsmError(
+          'BRANCH_CREATE_FAILED',
+          `基础分支 ${BASE_BRANCH_NAME} 不存在，请先在同步服务中创建空模板分支`,
+          'CHECK',
+        );
+      }
+      sourceBranch = BASE_BRANCH_NAME;
     }
 
     return {
       project,
-      branch: this.branch,
+      branch: this.clientBranch,
       branchExists: Boolean(branch),
       sourceBranch,
       file: branch
@@ -247,25 +252,42 @@ export class GitLabClient {
     };
   }
 
-  async createBranch(sourceBranch: string | null): Promise<void> {
-    const project = await this.getProject();
-    if (!sourceBranch && project.empty_repo) {
-      return;
+  async ensureBranch(
+    sourceBranch: string | null,
+  ): Promise<'created' | 'existing' | 'empty-repo'> {
+    if (await this.getBranch()) {
+      return 'existing';
     }
-    if (!sourceBranch) {
-      throw new DsmError(
-        'BRANCH_CREATE_FAILED',
-        '项目没有可用于创建分支的源分支',
-        'UPLOAD',
-      );
+    if (sourceBranch) {
+      try {
+        await this.requestJson<GitLabBranch>(
+          `${this.projectBase()}/repository/branches`,
+          {
+            method: 'POST',
+            body: { branch: this.clientBranch, ref: sourceBranch },
+          },
+          'UPLOAD',
+        );
+        return 'created';
+      } catch (error) {
+        if (
+          error instanceof GitLabApiError &&
+          error.responseStatus === 400 &&
+          (await this.getBranch())
+        ) {
+          return 'existing';
+        }
+        throw error;
+      }
     }
 
-    await this.requestJson<GitLabBranch>(
-      `${this.projectBase()}/repository/branches`,
-      {
-        method: 'POST',
-        body: { branch: this.branch, ref: sourceBranch },
-      },
+    const project = await this.getProject();
+    if (project.empty_repo) {
+      return 'empty-repo';
+    }
+    throw new DsmError(
+      'BRANCH_CREATE_FAILED',
+      `基础分支 ${BASE_BRANCH_NAME} 不存在，无法创建任务分支`,
       'UPLOAD',
     );
   }
@@ -279,7 +301,7 @@ export class GitLabClient {
         {
           method: 'POST',
           body: {
-            branch: this.branch,
+            branch: this.clientBranch,
             commit_message: commitMessage,
             actions: [
               {
@@ -301,7 +323,7 @@ export class GitLabClient {
 
     const method = request.fileExists ? 'PUT' : 'POST';
     const body: Record<string, unknown> = {
-      branch: this.branch,
+      branch: this.clientBranch,
       content: request.contentBase64,
       encoding: 'base64',
       commit_message: commitMessage,
@@ -327,7 +349,7 @@ export class GitLabClient {
   ): Promise<GitLabCommit | null> {
     const commits = await this.getJson<GitLabCommit[]>(
       `${this.projectBase()}/repository/commits?ref_name=${encodeSegment(
-        this.branch,
+        this.clientBranch,
       )}&path=${encodeSegment(fileName)}&per_page=20`,
     );
     return (
@@ -338,7 +360,7 @@ export class GitLabClient {
   }
 
   async downloadArchive(
-    commitId: string,
+    ref: string,
     destinationPath: string,
     limits: AppConfig['archiveLimits'],
     temporaryPath = `${destinationPath}.part`,
@@ -350,7 +372,7 @@ export class GitLabClient {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         return await this.downloadArchiveAttempt(
-          commitId,
+          ref,
           temporaryPath,
           destinationPath,
           limits,
@@ -367,13 +389,13 @@ export class GitLabClient {
   }
 
   private async downloadArchiveAttempt(
-    commitId: string,
+    ref: string,
     temporaryPath: string,
     destinationPath: string,
     limits: AppConfig['archiveLimits'],
   ): Promise<{ archivePath: string; archiveSize: number }> {
     const apiPath = `${this.projectBase()}/repository/archive.zip?sha=${encodeSegment(
-      commitId,
+      ref,
     )}`;
     const response = await this.requestRaw(
       apiPath,

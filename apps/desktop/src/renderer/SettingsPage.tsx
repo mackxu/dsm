@@ -93,7 +93,14 @@ export function SettingsPage({
       setToken('');
       setForm(result.bootstrap.config);
       onSaved(result.bootstrap, Boolean(submittedToken));
-      onNotice(submittedToken ? '设置与访问令牌已保存' : '设置已保存');
+      const savedMessage = submittedToken
+        ? '设置与访问令牌已保存'
+        : '设置已保存';
+      onNotice(
+        result.connection && !result.connection.baseBranchExists
+          ? `${savedMessage}，但缺少基础分支 ${result.bootstrap.baseBranch}，首次同步会失败`
+          : savedMessage,
+      );
     } catch (error) {
       if (moreRef.current) moreRef.current.open = true;
       onNotice(errorMessage(error));
@@ -105,8 +112,12 @@ export function SettingsPage({
   async function test(): Promise<void> {
     setTesting(true);
     try {
-      await unwrap(window.dsm.testConnection());
-      onNotice('连接成功');
+      const result = await unwrap(window.dsm.testConnection());
+      onNotice(
+        result.baseBranchExists
+          ? '连接成功'
+          : `连接成功，但缺少基础分支 ${bootstrap.baseBranch}，首次同步会失败`,
+      );
     } catch (error) {
       onNotice(errorMessage(error));
     } finally {
@@ -269,12 +280,16 @@ export function SettingsPage({
               />
             </label>
             <label className="field">
-              <span>目标分支</span>
+              <span>本机分支命名空间</span>
               <input
-                value={form.branch}
-                onChange={(event) => update('branch', event.target.value)}
+                value={bootstrap.clientBranchNamespace}
+                readOnly
+                spellCheck={false}
               />
-              <small>同步的文件会提交到这个分支。</small>
+              <small>
+                每次同步会在该命名空间下创建带时间戳的独立分支，仅包含本次上传的文件；基础分支固定为{' '}
+                {bootstrap.baseBranch}，时间戳使用东八区。
+              </small>
             </label>
           </div>
 

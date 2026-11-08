@@ -1,5 +1,6 @@
 export * from './archive/path-policy.ts';
 export * from './archive/safe-extract.ts';
+export * from './client-branch.ts';
 export * from './config.ts';
 export * from './errors.ts';
 export * from './gitlab/client.ts';

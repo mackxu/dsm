@@ -1,10 +1,18 @@
-import { app, BrowserWindow, dialog, screen, session } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  nativeImage,
+  screen,
+  session,
+} from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { TaskController, type TaskSnapshot } from '@dsm/core';
 
+import { resolveLocalClientBranchNamespace } from './main/client-identity.ts';
 import { ConfigStore } from './main/config-store.ts';
 import { setupIpc } from './main/ipc.ts';
 import { Logger } from './main/logger.ts';
@@ -46,14 +54,34 @@ function getLiveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
 }
 
+function resolveResourcesDirectory(): string {
+  return app.isPackaged
+    ? process.resourcesPath
+    : path.resolve(app.getAppPath(), '../../resources');
+}
+
+let cachedAppIcon: Electron.NativeImage | null | undefined;
+
+function getAppIcon(): Electron.NativeImage | null {
+  if (cachedAppIcon === undefined) {
+    const icon = nativeImage.createFromPath(
+      path.join(resolveResourcesDirectory(), 'icon.png'),
+    );
+    cachedAppIcon = icon.isEmpty() ? null : icon;
+  }
+  return cachedAppIcon;
+}
+
 function createWindow(): BrowserWindow {
   const windowSize = fitWindowToWorkArea(
     screen.getPrimaryDisplay().workAreaSize,
   );
+  const appIcon = getAppIcon();
   const window = new BrowserWindow({
     ...windowSize,
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
+    ...(appIcon ? { icon: appIcon } : {}),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#f4f6f2',
     show: false,
@@ -143,12 +171,17 @@ app
       (_webContents, _permission, callback) => callback(false),
     );
 
+    // 开发模式下 Dock 显示的是 Electron 默认图标，需要手动替换。
+    if (!app.isPackaged && process.platform === 'darwin') {
+      const appIcon = getAppIcon();
+      if (appIcon) app.dock?.setIcon(appIcon);
+    }
+
     const platform = new ElectronPlatform();
     const paths = platform.paths();
     const logger = new Logger(paths.logs);
-    const presetPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'preset.json')
-      : path.resolve(app.getAppPath(), '../../resources/preset.json');
+    const resourcesDirectory = resolveResourcesDirectory();
+    const presetPath = path.join(resourcesDirectory, 'preset.json');
     const presetStore = new PresetStore(presetPath, (error) => {
       void logger.log('WARN', 'CONFIG', '预置配置文件读取失败，已忽略', {
         details: {
@@ -159,9 +192,6 @@ app
     const configStore = new ConfigStore(paths.userData, presetStore);
     const tokenStore = new TokenStore(paths.userData, presetStore);
     const taskHistory = new TaskHistoryStore(paths.userData);
-    const resourcesDirectory = app.isPackaged
-      ? process.resourcesPath
-      : path.resolve(app.getAppPath(), '../../resources');
     const fileReader = new WhitelistedFileReader({
       nodeHelperPath: path.join(resourcesDirectory, 'dsm-file-reader.cjs'),
       pythonHelperPath: path.join(resourcesDirectory, 'dsm-file-reader.py'),
@@ -181,12 +211,14 @@ app
     );
 
     let previousStatus: TaskSnapshot['status'] | null = null;
+    const clientBranchNamespace = resolveLocalClientBranchNamespace();
     taskController = new TaskController({
       transport,
       getConfig: () => configStore.load(),
       getToken: () => tokenStore.getToken(),
       getDocumentsDirectory: () => paths.documents,
       getTemporaryDirectory: () => paths.temporary,
+      clientBranchNamespace,
       readFileContent: (filePath, options) =>
         fileReader.read(filePath, options),
       onAuthenticationFailure: (status) =>
@@ -236,6 +268,7 @@ app
       taskHistory,
       fileReader,
       documentsDirectory: paths.documents,
+      clientBranchNamespace,
       appVersion: app.getVersion(),
       platformLabel: platformLabel(),
     });
@@ -245,6 +278,9 @@ app
       config.saveDirectory ?? path.join(paths.documents, 'DSM');
     await cleanStaleTemporaryItems(saveDirectory, logger);
     await logger.log('INFO', 'APP', '应用已启动');
+    await logger.log('INFO', 'APP', '本机分支命名空间已确定', {
+      details: { clientBranchNamespace },
+    });
   })
   .catch((error: unknown) => {
     dialog.showErrorBox(
@@ -254,14 +290,8 @@ app
     app.quit();
   });
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    mainWindow = createWindow();
-  }
-});
-
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 app.on('before-quit', () => {

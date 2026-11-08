@@ -12,6 +12,7 @@
     "check": "pnpm run typecheck && pnpm --filter @dsm/core typecheck && pnpm --filter desktop typecheck",
     "typecheck": "tsc --noEmit -p tests/tsconfig.json",
     "test": "vitest run",
+    "icons": "node scripts/generate-icon.mjs",
     "check:preset": "node scripts/check-preset.mjs",
     "package": "pnpm run check:preset && pnpm --filter desktop package",
     "make": "pnpm run check:preset && pnpm --filter desktop make",

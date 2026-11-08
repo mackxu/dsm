@@ -1,9 +1,10 @@
 # DSM 文件同步助手
 
 面向 macOS Apple Silicon 与 Windows 10/11 x64 的 GitLab 单文件同步桌面应用。
-应用将文件上传到指定分支，通过唯一任务标记定位本次 Commit，只下载该 Commit
-的归档并安全解压到独立时间戳目录；结果目录只保留本次上传的文件，归档中的
-其他文件不会写入。
+每次同步都会从固定的基础分支 `main` 创建一个带东八区时间戳的独立分支
+（`系统用户名-主机名/时间戳`），只把本次文件提交到该分支，并按该分支下载归档。
+每个任务分支只包含 `main` 的少量模板文件 + 本次上传的文件，因此下载包大小与
+仓库历史和其他客户端无关；结果目录只保留本次上传的文件。
 
 产品边界和技术细节见 [技术方案](docs/product-technical-plan.md) 与
 [实施及验收清单](docs/implementation-and-acceptance.md)。
@@ -67,7 +68,6 @@ pwsh -File scripts/build-windows.ps1
 {
   "gitlabUrl": "https://gitlab.example.com",
   "projectId": "group/project",
-  "branch": "main",
   "token": "glpat-xxxxxxxxxxxxxxxxxxxx"
 }
 ```
@@ -79,8 +79,10 @@ pwsh -File scripts/build-windows.ps1
 | --- | --- |
 | `gitlabUrl` | GitLab 根地址，不含 `/api/v4` |
 | `projectId` | 项目 ID（数字或 `group/project`） |
-| `branch` | 目标分支 |
 | `token` | GitLab Token，明文 |
+
+目标分支不再通过预置配置：客户端分支命名空间由系统用户名和主机名自动生成，
+基础分支固定为 `main`。
 
 填好后直接打包：
 
@@ -88,7 +90,7 @@ pwsh -File scripts/build-windows.ps1
 pnpm run make:mac    # 或 make:win
 ```
 
-打包前会自动执行 `pnpm run check:preset`：校验地址、项目 ID、分支和 JSON 格式，
+打包前会自动执行 `pnpm run check:preset`：校验地址、项目 ID 和 JSON 格式，
 非法值终止打包，日志只输出设置了哪些字段，不输出 Token。文件不存在时生成空的
 `{}`，不会覆盖已经手工填写的内容。
 
@@ -96,7 +98,7 @@ pnpm run make:mac    # 或 make:win
 
 预置值的行为：
 
-- 尚未保存过设置时，`gitlabUrl`、`projectId`、`branch` 作为首次启动的初始配置。
+- 尚未保存过设置时，`gitlabUrl`、`projectId` 作为首次启动的初始配置。
 - 用户在设置页保存后，`userData/settings.json` 成为唯一来源，之后的新安装包不会
   覆盖已保存的配置；需要恢复预置值时删除该文件。
 - 应用首次启动时把非空预置 Token 复制到 `userData/token.json`；用户在界面中清除
@@ -105,6 +107,20 @@ pnpm run make:mac    # 或 make:win
 Token 按产品要求以明文保存在 `userData/token.json`，macOS 文件权限为 `0600`；
 `resources/preset.json` 同样以 `0600` 生成。任何能读取安装包或当前用户目录的人
 仍可读取这些值；请使用专用、短期、可撤销且限制分发范围的 Token。
+
+## 客户端分支
+
+- 分支命名空间由系统用户名和主机名自动生成，例如 `zhangsan-pc01`，在设置页只读展示。
+- 每次同步在该命名空间下创建一个新分支，例如
+  `zhangsan-pc01/20261108-153000-123-ab12cd`；时间戳固定使用东八区（UTC+8），
+  并追加任务 ID 前 6 位。
+- 任务分支从固定的基础分支 `main` 创建，上传成功后按该分支下载归档；任务分支
+  创建后不再写入，因此分支 tip 就是本次上传的版本。
+- 生产 GitLab 必须存在只含 README、`.gitkeep` 等少量占位文件的 `main` 分支。
+  若 `main` 不存在，任务会以 `BRANCH_CREATE_FAILED` 失败，设置页的「测试连接」
+  也会给出提示。
+- 任务分支不会自动删除，可在 GitLab 中按需清理；分支数量不影响下载包大小。
+- 设置页不提供分支编辑；`settings.json` / `preset.json` 中的 `branch` 字段不再读取。
 
 ## DSM 加密文件读取
 
@@ -182,12 +198,17 @@ ZIP。`package:mac` / `make:mac` / `package:win` / `make:win` 只是固定了
 
 ## 使用 `.env` 做本地冒烟测试
 
-冒烟脚本使用 `.env` 中的四个键：`GITLAB_URL`、`GIT_TOKEN`、`PROJECT_ID` 和
-`BRANCH_NAME`。测试脚本不会输出 Token。
+冒烟脚本使用 `.env` 中的 `GITLAB_URL`、`GIT_TOKEN`、`PROJECT_ID`；可选的
+`DSM_CLIENT_BRANCH` 进程环境变量用于覆盖自动生成的本机分支命名空间。测试脚本不会输出 Token。
+目标项目必须存在只含少量占位文件的 `main` 基础分支。
 
 ```bash
-# 只读验证用户、项目和目标分支
+# 只读验证用户、项目和基础分支 main
 ./node_modules/.bin/tsx scripts/test-env-connection.ts
+
+# 可选：用 DSM_CLIENT_BRANCH 覆盖自动生成的本机分支命名空间
+DSM_CLIENT_BRANCH=zhangsan-pc01 \
+  ./node_modules/.bin/tsx scripts/test-env-connection.ts
 
 # 只读检查唯一测试文件名是否冲突
 DSM_SMOKE_FILE_NAME=dsm-smoke-unique.txt \

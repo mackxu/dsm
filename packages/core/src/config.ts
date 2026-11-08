@@ -22,7 +22,6 @@ export interface AppConfig {
   schemaVersion: 1;
   gitlabUrl: string;
   projectId: string;
-  branch: string;
   saveDirectory: string | null;
   /**
    * 优先使用的 DSM 读取器。另一个读取器只在其自动探测完全失败时回退使用。
@@ -56,7 +55,6 @@ export const DEFAULT_CONFIG: Readonly<AppConfig> = {
   schemaVersion: 1,
   gitlabUrl: '',
   projectId: '',
-  branch: 'main',
   saveDirectory: null,
   preferredReader: 'node',
   nodeReaderPath: null,
@@ -165,7 +163,6 @@ export function validateAppConfig(
 
   const gitlabUrl = normalizeGitLabUrl(String(candidate.gitlabUrl ?? ''));
   const projectId = String(candidate.projectId ?? '').trim();
-  const branch = String(candidate.branch ?? '').trim();
   const saveDirectory =
     candidate.saveDirectory === null || candidate.saveDirectory === undefined
       ? null
@@ -183,15 +180,9 @@ export function validateAppConfig(
     if (!projectId) {
       throw new DsmError('CONFIG_REQUIRED', '请配置项目', 'CONFIG');
     }
-    if (!branch) {
-      throw new DsmError('CONFIG_REQUIRED', '请配置分支', 'CONFIG');
-    }
   }
   if (projectId && (/\s/.test(projectId) || projectId.startsWith('/'))) {
     throw new DsmError('CONFIG_INVALID', '项目格式无效', 'CONFIG');
-  }
-  if (branch && /\s/.test(branch)) {
-    throw new DsmError('CONFIG_INVALID', '分支名称不能包含空白', 'CONFIG');
   }
   if (candidate.keepArchive !== undefined && typeof candidate.keepArchive !== 'boolean') {
     throw new DsmError('CONFIG_INVALID', '保留压缩包必须是布尔值', 'CONFIG');
@@ -206,7 +197,6 @@ export function validateAppConfig(
     schemaVersion: 1,
     gitlabUrl,
     projectId,
-    branch: branch || 'main',
     saveDirectory,
     preferredReader: readerSelection.preferredReader,
     nodeReaderPath: readerSelection.nodeReaderPath,
@@ -258,5 +248,5 @@ export function resolveSaveDirectory(
 }
 
 export function isRemoteConfigReady(config: AppConfig): boolean {
-  return Boolean(config.gitlabUrl && config.projectId && config.branch);
+  return Boolean(config.gitlabUrl && config.projectId);
 }

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { extractArchive } from './archive/safe-extract.ts';
+import { buildTaskBranchName } from './client-branch.ts';
 import {
   resolveSaveDirectory,
   validateAppConfig,
@@ -29,7 +30,7 @@ import {
   type TaskFailure,
   type TaskSnapshot,
 } from './task-state.ts';
-import { createLocalTimestamp } from './timestamp.ts';
+import { createUtc8Timestamp } from './timestamp.ts';
 
 export interface TaskControllerOptions {
   transport: HttpTransport;
@@ -37,6 +38,11 @@ export interface TaskControllerOptions {
   getToken: () => Promise<string>;
   getDocumentsDirectory: () => string;
   getTemporaryDirectory: () => string;
+  /**
+   * 本机分支命名空间（系统用户名 + 主机名）。每个任务在其下创建
+   * `<命名空间>/<时间戳>` 的独立分支。
+   */
+  clientBranchNamespace: string;
   /**
    * 读取待上传文件的明文内容。默认使用 fs.readFile。
    * DSM 透明加密环境由桌面端注入白名单进程读取实现。
@@ -50,7 +56,6 @@ export interface TaskControllerOptions {
 
 export interface TaskConfirmation {
   allowOverwrite?: boolean;
-  allowCreateBranch?: boolean;
 }
 
 interface FileBaseline {
@@ -64,6 +69,7 @@ interface TaskRuntime {
   token: string;
   filePath: string;
   fileName: string;
+  branch: string;
   baseline: FileBaseline;
   preparation: UploadPreparation;
   marker: string;
@@ -95,6 +101,10 @@ export class TaskController {
     this.emit();
 
     try {
+      const branch = buildTaskBranchName(
+        this.options.clientBranchNamespace,
+        `${createUtc8Timestamp(now)}-${taskId.slice(0, 6)}`,
+      );
       const config = validateAppConfig(await this.options.getConfig(), {
         requireRemote: true,
       });
@@ -117,7 +127,12 @@ export class TaskController {
         return this.getCurrentTask() as TaskSnapshot;
       }
 
-      const client = GitLabClient.fromConfig(config, token, this.options.transport);
+      const client = GitLabClient.fromConfig(
+        config,
+        token,
+        this.options.transport,
+        branch,
+      );
       const preparation = await client.prepareUpload(fileName);
       const marker = `${taskId}-${now.getTime()}`;
       this.runtime = {
@@ -126,6 +141,7 @@ export class TaskController {
         token,
         filePath,
         fileName,
+        branch,
         baseline,
         preparation,
         marker,
@@ -135,21 +151,15 @@ export class TaskController {
       };
       this.current = {
         ...this.current,
-        branch: config.branch,
+        branch,
         remotePath: fileName,
         sourceBranch: preparation.sourceBranch,
       };
 
-      if (!preparation.branchExists) {
-        return this.waitForConfirmation(
-          'WAITING_FOR_BRANCH_CONFIRMATION',
-          '目标分支不存在，确认后将从源分支创建',
-        );
-      }
       if (preparation.file.exists) {
         return this.waitForConfirmation(
           'WAITING_FOR_OVERWRITE_CONFIRMATION',
-          '远端存在同名文件，确认后将覆盖',
+          '任务分支已存在同名文件，确认后将覆盖',
         );
       }
 
@@ -169,36 +179,6 @@ export class TaskController {
     }
 
     try {
-      if (this.current.status === 'WAITING_FOR_BRANCH_CONFIRMATION') {
-        if (!confirmation.allowCreateBranch) {
-          throw new DsmError(
-            'INVALID_REQUEST',
-            '未确认创建目标分支，任务已停止',
-            'UPLOAD',
-          );
-        }
-        this.moveTo('CHECKING', 'CHECK');
-        const client = this.clientFor(runtime);
-        await client.createBranch(runtime.preparation.sourceBranch);
-        runtime.branchCreated = true;
-        if (this.current) {
-          this.current = { ...this.current, branchCreated: true };
-        }
-
-        if (runtime.preparation.sourceBranch) {
-          const metadata = await client.getFileMetadata(runtime.fileName);
-          runtime.preparation.file = metadata;
-          runtime.preparation.branchExists = true;
-          if (metadata.exists) {
-            return this.waitForConfirmation(
-              'WAITING_FOR_OVERWRITE_CONFIRMATION',
-              '远端源分支已有同名文件，确认后将覆盖',
-            );
-          }
-        }
-        return await this.uploadAndFinish(runtime);
-      }
-
       if (this.current.status === 'WAITING_FOR_OVERWRITE_CONFIRMATION') {
         if (!confirmation.allowOverwrite) {
           throw new DsmError(
@@ -353,11 +333,34 @@ export class TaskController {
     }
 
     try {
+      if (!runtime.preparation.branchExists) {
+        const outcome = await client.ensureBranch(
+          runtime.preparation.sourceBranch,
+        );
+        if (outcome !== 'empty-repo') {
+          runtime.preparation.branchExists = true;
+          runtime.branchCreated = outcome === 'created';
+          if (this.current) {
+            this.current = {
+              ...this.current,
+              branchCreated: runtime.branchCreated,
+            };
+          }
+          const metadata = await client.getFileMetadata(runtime.fileName);
+          runtime.preparation.file = metadata;
+          if (metadata.exists) {
+            return this.waitForConfirmation(
+              'WAITING_FOR_OVERWRITE_CONFIRMATION',
+              '任务分支继承了基础分支的同名文件，确认后将覆盖',
+            );
+          }
+        }
+      }
+
       await client.uploadFile({
         fileName: runtime.fileName,
         contentBase64: content.toString('base64'),
         taskMarker: runtime.marker,
-        branchExists: runtime.preparation.branchExists,
         branchMissing: !runtime.preparation.branchExists,
         fileExists: runtime.preparation.file.exists,
         lastCommitId: runtime.preparation.file.lastCommitId,
@@ -417,15 +420,17 @@ export class TaskController {
     );
     const timestamp = runtime.directoryName ?? this.uniqueTimestamp(runtime);
     runtime.directoryName = timestamp;
-    const safeBranch = runtime.config.branch.replace(/[^A-Za-z0-9._-]+/g, '_');
+    const safeBranch = runtime.branch.replace(/[^A-Za-z0-9._-]+/g, '_');
     const archivePath = path.join(
       saveDirectory,
       `gitlab-project-${safeBranch}-${timestamp}.zip`,
     );
 
     try {
-      const result = await this.clientFor(runtime).downloadArchive(
-        commitId,
+      const client = this.clientFor(runtime);
+      const ref = await this.resolveArchiveRef(client, runtime, commitId);
+      const result = await client.downloadArchive(
+        ref,
         archivePath,
         runtime.config.archiveLimits,
         path.join(saveDirectory, `.dsm-${runtime.taskId}.zip.part`),
@@ -453,11 +458,13 @@ export class TaskController {
 
     try {
       if (!runtime.archivePath || !(await fs.stat(runtime.archivePath).catch(() => null))) {
-        const safeBranch = runtime.config.branch.replace(/[^A-Za-z0-9._-]+/g, '_');
+        const safeBranch = runtime.branch.replace(/[^A-Za-z0-9._-]+/g, '_');
         const timestamp = runtime.directoryName ?? this.uniqueTimestamp(runtime);
         runtime.directoryName = timestamp;
-        const downloaded = await this.clientFor(runtime).downloadArchive(
-          commitId,
+        const client = this.clientFor(runtime);
+        const ref = await this.resolveArchiveRef(client, runtime, commitId);
+        const downloaded = await client.downloadArchive(
+          ref,
           path.join(
             saveDirectory,
             `gitlab-project-${safeBranch}-${timestamp}.zip`,
@@ -642,7 +649,7 @@ export class TaskController {
   }
 
   private waitForConfirmation(
-    status: 'WAITING_FOR_OVERWRITE_CONFIRMATION' | 'WAITING_FOR_BRANCH_CONFIRMATION',
+    status: 'WAITING_FOR_OVERWRITE_CONFIRMATION',
     message: string,
   ): TaskSnapshot {
     if (!this.current) throw new DsmError('TASK_NOT_FOUND', '任务不存在', 'CHECK');
@@ -650,10 +657,7 @@ export class TaskController {
       ...this.current,
       status,
       failure: {
-        code:
-          status === 'WAITING_FOR_OVERWRITE_CONFIRMATION'
-            ? 'OVERWRITE_CONFIRMATION_REQUIRED'
-            : 'BRANCH_CONFIRMATION_REQUIRED',
+        code: 'OVERWRITE_CONFIRMATION_REQUIRED',
         stage: 'CHECK',
         message,
         recoverable: true,
@@ -705,11 +709,28 @@ export class TaskController {
       runtime.config,
       runtime.token,
       this.options.transport,
+      runtime.branch,
     );
   }
 
+  private async resolveArchiveRef(
+    client: GitLabClient,
+    runtime: TaskRuntime,
+    commitId: string,
+  ): Promise<string> {
+    try {
+      const branch = await client.getBranch();
+      if (branch?.commit?.id === commitId) {
+        return runtime.branch;
+      }
+    } catch {
+      // Fall back to the immutable commit ID when the branch lookup fails.
+    }
+    return commitId;
+  }
+
   private uniqueTimestamp(runtime: TaskRuntime): string {
-    const base = createLocalTimestamp(this.options.now?.() ?? new Date());
+    const base = createUtc8Timestamp(this.options.now?.() ?? new Date());
     return `${base}-${runtime.taskId.slice(0, 6)}`;
   }
 

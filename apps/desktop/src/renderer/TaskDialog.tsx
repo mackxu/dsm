@@ -15,7 +15,6 @@ const STATUS_LABELS: Record<TaskSnapshot['status'], string> = {
   CHECKING: '检查文件状态',
   WAITING_FOR_TOKEN: '等待访问令牌',
   WAITING_FOR_OVERWRITE_CONFIRMATION: '等待确认覆盖',
-  WAITING_FOR_BRANCH_CONFIRMATION: '等待确认分支',
   UPLOADING: '正在上传',
   UPLOADED: '正在确认本次提交',
   DOWNLOADING: '正在下载压缩包',
@@ -30,7 +29,6 @@ const ACTIVE_STATUSES = new Set<TaskSnapshot['status']>([
   'CHECKING',
   'WAITING_FOR_TOKEN',
   'WAITING_FOR_OVERWRITE_CONFIRMATION',
-  'WAITING_FOR_BRANCH_CONFIRMATION',
   'UPLOADING',
   'UPLOADED',
   'DOWNLOADING',
@@ -54,20 +52,11 @@ export function TaskDialog({
 
   if (dismissed) return <></>;
 
-  async function confirm(
-    allowOverwrite: boolean,
-    allowCreateBranch: boolean,
-  ): Promise<void> {
+  async function confirm(allowOverwrite: boolean): Promise<void> {
     setBusy(true);
     try {
       onTask(
-        await unwrap(
-          window.dsm.confirmTask(
-            task.taskId,
-            allowOverwrite,
-            allowCreateBranch,
-          ),
-        ),
+        await unwrap(window.dsm.confirmTask(task.taskId, allowOverwrite)),
       );
     } catch (error) {
       onNotice(errorMessage(error));
@@ -138,8 +127,8 @@ export function TaskDialog({
         </div>
 
         <dl className="task-meta">
-          <div>
-            <dt>目标分支</dt>
+          <div className="task-meta-wide">
+            <dt>任务名称</dt>
             <dd>{task.branch ?? '—'}</dd>
           </div>
           <div>
@@ -148,12 +137,6 @@ export function TaskDialog({
               {task.commitId ? task.commitId.slice(0, 8) : '等待生成'}
             </dd>
           </div>
-          {task.branchCreated && (
-            <div>
-              <dt>分支变更</dt>
-              <dd>已创建分支 {task.branch}</dd>
-            </div>
-          )}
           <div>
             <dt>保存位置</dt>
             <dd title={task.resultDirectory ?? undefined}>
@@ -168,7 +151,7 @@ export function TaskDialog({
               type="button"
               className="primary-button"
               disabled={busy}
-              onClick={() => void confirm(true, false)}
+              onClick={() => void confirm(true)}
             >
               确认覆盖并上传
             </button>
@@ -176,39 +159,11 @@ export function TaskDialog({
               type="button"
               className="text-button"
               disabled={busy}
-              onClick={() => void confirm(false, false)}
+              onClick={() => void confirm(false)}
             >
               取消任务
             </button>
           </div>
-        )}
-
-        {task.status === 'WAITING_FOR_BRANCH_CONFIRMATION' && (
-          <>
-            <p className="helper-text">
-              {task.sourceBranch
-                ? `将从分支 ${task.sourceBranch} 创建新分支 ${task.branch}。`
-                : `项目还没有任何提交，将创建分支 ${task.branch} 并写入第一个文件。`}
-            </p>
-            <div className="dialog-actions">
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busy}
-                onClick={() => void confirm(false, true)}
-              >
-                确认创建分支
-              </button>
-              <button
-                type="button"
-                className="text-button"
-                disabled={busy}
-                onClick={() => void confirm(false, false)}
-              >
-                取消任务
-              </button>
-            </div>
-          </>
         )}
 
         {task.status === 'WAITING_FOR_TOKEN' && (

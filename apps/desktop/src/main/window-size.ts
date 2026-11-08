@@ -1,8 +1,8 @@
-export const MIN_WINDOW_WIDTH = 940;
-export const MIN_WINDOW_HEIGHT = 640;
+export const MIN_WINDOW_WIDTH = 400;
+export const MIN_WINDOW_HEIGHT = 540;
 
-const MAX_WINDOW_WIDTH = 1180;
-const MAX_WINDOW_HEIGHT = 780;
+const MAX_WINDOW_WIDTH = 480;
+const MAX_WINDOW_HEIGHT = 680;
 const WORK_AREA_MARGIN = 80;
 
 export interface WorkAreaSize {

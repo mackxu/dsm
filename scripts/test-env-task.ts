@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
   createDefaultConfig,
+  resolveClientBranchNamespace,
   TaskController,
   validateAppConfig,
   type HttpTransport,
@@ -29,12 +30,17 @@ const config = validateAppConfig(
     ...createDefaultConfig(),
     gitlabUrl: env.GITLAB_URL,
     projectId: env.PROJECT_ID,
-    branch: env.BRANCH_NAME || 'main',
     saveDirectory,
     keepArchive: true,
   },
   { requireRemote: true },
 );
+const clientBranchNamespace =
+  process.env.DSM_CLIENT_BRANCH?.trim() ||
+  resolveClientBranchNamespace({
+    username: os.userInfo().username,
+    hostname: os.hostname(),
+  });
 const token = env.GIT_TOKEN?.trim() ?? '';
 if (!token) {
   throw new Error('GIT_TOKEN is missing from .env');
@@ -53,6 +59,7 @@ const controller = new TaskController({
   getToken: async () => token,
   getDocumentsDirectory: () => workspace,
   getTemporaryDirectory: () => workspace,
+  clientBranchNamespace,
   onUpdate: (snapshot) => {
     const previous = states.at(-1);
     if (
@@ -64,7 +71,10 @@ const controller = new TaskController({
   },
 });
 
-const task = await controller.start(sourcePath);
+let task = await controller.start(sourcePath);
+if (task.status === 'WAITING_FOR_OVERWRITE_CONFIRMATION') {
+  task = await controller.confirm(task.taskId, { allowOverwrite: true });
+}
 const extractedPath = task.resultDirectory
   ? path.join(task.resultDirectory, fileName)
   : null;
@@ -82,6 +92,7 @@ console.log(
       fileName,
       commitId: task.commitId,
       branch: task.branch,
+      baseBranch: task.sourceBranch,
       remotePath: task.remotePath,
       resultDirectory: task.resultDirectory,
       archivePath: task.archivePath,

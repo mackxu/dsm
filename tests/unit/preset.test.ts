@@ -8,18 +8,16 @@ import {
 } from '@dsm/core';
 
 describe('preset configuration', () => {
-  it('parses and normalizes the four preset fields', () => {
+  it('parses and normalizes the preset fields', () => {
     expect(
       parsePresetConfig({
         gitlabUrl: ' https://gitlab.example.com/ ',
         projectId: ' group/project ',
-        branch: ' release ',
         token: ' glpat-preset ',
       }),
     ).toEqual({
       gitlabUrl: 'https://gitlab.example.com',
       projectId: 'group/project',
-      branch: 'release',
       token: 'glpat-preset',
     });
   });
@@ -39,7 +37,6 @@ describe('preset configuration', () => {
     expect(() => parsePresetConfig({ projectId: 'group project' })).toThrow(
       /项目 ID/,
     );
-    expect(() => parsePresetConfig({ branch: 'release 1' })).toThrow(/空白/);
     expect(() => parsePresetConfig({ token: 123 })).toThrow(/Token/);
   });
 
@@ -48,16 +45,13 @@ describe('preset configuration', () => {
       parsePresetConfig({
         gitlabUrl: 'https://gitlab.example.com/',
         projectId: '42',
-        branch: 'dev',
       }),
     );
     expect(config.gitlabUrl).toBe('https://gitlab.example.com');
     expect(config.projectId).toBe('42');
-    expect(config.branch).toBe('dev');
 
     const fallback = createConfigFromPreset(parsePresetConfig({}));
     expect(fallback.gitlabUrl).toBe(DEFAULT_CONFIG.gitlabUrl);
     expect(fallback.projectId).toBe(DEFAULT_CONFIG.projectId);
-    expect(fallback.branch).toBe(DEFAULT_CONFIG.branch);
   });
 });

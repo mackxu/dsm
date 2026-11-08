@@ -6,6 +6,7 @@ import {
   createDefaultConfig,
   extractArchive,
   GitLabClient,
+  resolveClientBranchNamespace,
   validateAppConfig,
   type HttpTransport,
 } from '../packages/core/src/index.ts';
@@ -24,7 +25,7 @@ const workspace = await fs.mkdtemp(
 const timestamp = `recovery-${Date.now()}`;
 const archivePath = path.join(
   workspace,
-  `gitlab-project-main-${timestamp}.zip`,
+  `gitlab-project-recover-${timestamp}.zip`,
 );
 const temporaryArchivePath = path.join(workspace, `.dsm-${timestamp}.zip.part`);
 const config = validateAppConfig(
@@ -32,7 +33,6 @@ const config = validateAppConfig(
     ...createDefaultConfig(),
     gitlabUrl: env.GITLAB_URL,
     projectId: env.PROJECT_ID,
-    branch: env.BRANCH_NAME || 'main',
     saveDirectory: workspace,
   },
   { requireRemote: true },
@@ -40,7 +40,18 @@ const config = validateAppConfig(
 const transport: HttpTransport = {
   request: (url, options) => fetch(url, options),
 };
-const client = GitLabClient.fromConfig(config, env.GIT_TOKEN, transport);
+const clientBranchNamespace =
+  process.env.DSM_CLIENT_BRANCH?.trim() ||
+  resolveClientBranchNamespace({
+    username: os.userInfo().username,
+    hostname: os.hostname(),
+  });
+const client = GitLabClient.fromConfig(
+  config,
+  env.GIT_TOKEN,
+  transport,
+  `${clientBranchNamespace}/recovery-${timestamp}`,
+);
 const download = await client.downloadArchive(
   commitId,
   archivePath,

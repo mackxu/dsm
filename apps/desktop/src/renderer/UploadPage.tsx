@@ -83,11 +83,6 @@ export function UploadPage({
           <div>
             <h2>选择文件，开始同步</h2>
           </div>
-          <span
-            className={`token-chip ${bootstrap.token.configured ? 'ready' : ''}`}
-          >
-            {bootstrap.token.configured ? '令牌已配置' : '未配置令牌'}
-          </span>
         </div>
 
         <div
@@ -139,44 +134,37 @@ export function UploadPage({
         )}
       </div>
 
-      <aside className="side-column">
-        <div className="info-panel task-summary">
-          <div className="task-summary-head">
-            <span className="eyebrow">最近任务</span>
-            <button
-              type="button"
-              className="text-button task-summary-link"
-              onClick={() => void openResults()}
-            >
-              打开保存位置
-            </button>
-          </div>
-          {recentTasks.length > 0 ? (
-            <ul className="recent-task-list">
-              {recentTasks.map((item) => (
-                <li key={item.taskId} className="recent-task-item">
-                  <strong title={item.fileName ?? undefined}>
-                    {item.fileName ?? '任务'}
-                  </strong>
-                  <span>{statusText(item)}</span>
-                  <time dateTime={item.updatedAt}>
-                    {new Date(item.updatedAt).toLocaleString()}
-                  </time>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <>
-              <h3>还没有任务</h3>
-              <p>第一次同步后会在这里显示最近状态。</p>
-            </>
-          )}
+      <aside className="info-panel task-summary">
+        <div className="task-summary-head">
+          <span className="eyebrow">最近任务</span>
+          <button
+            type="button"
+            className="text-button task-summary-link"
+            onClick={() => void openResults()}
+          >
+            打开保存位置
+          </button>
         </div>
-
-        <div className="safety-note">
-          <strong>本次结果已固定</strong>
-          <p>后续向分支推送新内容，不会影响已经同步的文件。</p>
-        </div>
+        {recentTasks.length > 0 ? (
+          <ul className="recent-task-list">
+            {recentTasks.map((item) => (
+              <li key={item.taskId} className="recent-task-item">
+                <strong title={item.fileName ?? undefined}>
+                  {item.fileName ?? '任务'}
+                </strong>
+                <span>{statusText(item)}</span>
+                <time dateTime={item.updatedAt}>
+                  {new Date(item.updatedAt).toLocaleString()}
+                </time>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <>
+            <h3>还没有任务</h3>
+            <p>第一次同步后会在这里显示最近状态。</p>
+          </>
+        )}
       </aside>
     </div>
   );
@@ -188,7 +176,6 @@ function statusText(task: TaskSnapshot): string {
     CHECKING: '正在检查文件状态',
     WAITING_FOR_TOKEN: '等待访问令牌',
     WAITING_FOR_OVERWRITE_CONFIRMATION: '等待确认覆盖',
-    WAITING_FOR_BRANCH_CONFIRMATION: '等待确认创建分支',
     UPLOADING: '正在上传',
     UPLOADED: '正在确认本次提交',
     DOWNLOADING: '正在下载压缩包',

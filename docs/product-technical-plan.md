@@ -15,7 +15,7 @@
 - Token 使用明文持久化，不使用 `safeStorage`、Keychain、DPAPI 或客户端加密。
 - Token 是非必填配置；没有 Token 时仍可启动应用和使用本地功能。
 - GitLab 地址允许 HTTP 或 HTTPS，不作协议强制。
-- 上传后按本任务实际产生的 Commit ID 下载归档，不按可变分支名下载。
+- 上传后按本次任务的独立分支下载归档；任务分支唯一且创建后不再写入，分支 tip 即本次上传版本。Commit ID 仍用于展示与失败恢复。
 - 首版只检查目标文件中是否存在于指定 Commit 的解压结果，不提供内容完整性验证。
 
 首版边界：
@@ -28,12 +28,12 @@
 
 ### 2.1 首版保留
 
-- 安装包预置 GitLab 地址、项目 ID、分支和 Token，用户可替换或清除。
+- 安装包预置 GitLab 地址、项目 ID 和 Token，用户可替换或清除。
 - Token 可选输入、验证和明文持久化。
-- GitLab 地址、项目、分支、保存目录、超时和归档保留配置。
+- GitLab 地址、项目、保存目录、超时和归档保留配置。
 - 单文件选择或拖入，默认上限 50 MiB。
 - 创建远端文件，或经确认后覆盖同名文件。
-- 目标分支不存在时，经确认后从项目默认分支创建。
+- 每次任务从固定基础分支 `main` 自动创建 `系统用户名-主机名/时间戳` 任务分支；基础分支不存在时明确失败。
 - 上传后识别本任务 Commit ID，并下载该 Commit 的归档。
 - 归档安全解压到独立时间戳目录，并检查上传文件是否存在。
 - 上传、下载、解压和清理阶段状态及失败恢复。
@@ -66,7 +66,7 @@
 
 Token 缺失不阻止应用启动、修改非敏感设置或选择本地文件，只阻止测试连接、远端检查和上传下载。Token 可在设置页的 Token 区块跳过或稍后配置。
 
-安装包允许通过 Forge `extraResource` 预置 GitLab 地址、项目 ID、目标分支和真实 Token（`resources/preset.json`）。尚未保存 `settings.json` 时，预置连接配置作为首次启动的初始值；用户保存设置后以用户配置为准，新安装包不会覆盖。首次启动将预置 Token 复制到 `userData/token.json` 明文保存。用户修改后使用用户版本；用户清除后写入空值并标记为用户覆盖，不再次恢复预置值。
+安装包允许通过 Forge `extraResource` 预置 GitLab 地址、项目 ID 和真实 Token（`resources/preset.json`）。尚未保存 `settings.json` 时，预置连接配置作为首次启动的初始值；用户保存设置后以用户配置为准，新安装包不会覆盖。首次启动将预置 Token 复制到 `userData/token.json` 明文保存。用户修改后使用用户版本；用户清除后写入空值并标记为用户覆盖，不再次恢复预置值。客户端分支由系统身份自动生成，不进入预置配置。
 
 该设计明确接受以下风险：
 
@@ -82,8 +82,8 @@ Token 缺失不阻止应用启动、修改非敏感设置或选择本地文件�
 选择文件
   -> 校验本地文件、大小、保存目录和配置
   -> 缺少 Token 时等待用户配置
-  -> 查询项目、分支和远端同名文件
-  -> 必要时确认覆盖或创建分支
+  -> 查询项目、基础分支 main 和远端同名文件
+  -> 必要时确认覆盖
   -> 上传一次
   -> 通过唯一任务标记查询本任务 Commit ID
   -> 按 Commit ID 下载归档到 .part 文件
@@ -140,20 +140,20 @@ FAILED
 | --- | --- | --- |
 | GitLab 地址 | 服务根地址，不含 `/api/v4` | 可由安装包预置 |
 | 项目 ID | 数字 ID 或 `group/project` | 可由安装包预置 |
-| 分支 | 上传、检查和下载使用 | 可由安装包预置，默认 `main` |
+| 客户端分支命名空间 | 系统用户名 + 主机名，例如 `zhangsan-pc01` | 只读展示；每次任务在其下创建带东八区时间戳的分支 |
 | 保存目录 | 解压结果根目录 | 用户文档目录下的 `DSM` |
 | API 超时 | 普通请求超时 | 30 秒 |
 | 下载超时 | 归档请求超时 | 120 秒 |
 | 最大上传大小 | 本地文件上限 | 50 MiB |
 | 保留 ZIP | 成功后是否保留归档 | 关闭 |
 | Token 状态 | 来源、有效性和所属用户 | 非必填，不回显原值 |
-| 测试连接 | 验证 Token、项目和分支 | 有 Token 时可执行 |
+| 测试连接 | 验证 Token、项目和基础分支 main | 有 Token 时可执行 |
 
 保存流程：
 
-1. 校验地址、项目 ID、分支和保存目录。
+1. 校验地址、项目 ID 和保存目录。
 2. 创建并检查保存目录可写。
-3. 有 Token 时验证 Token、项目和分支；没有 Token 时只保存本地配置并标记未连接。
+3. 有 Token 时验证 Token、项目和基础分支 main；没有 Token 时只保存本地配置并标记未连接。
 4. 验证失败保留旧配置；验证成功或仅保存本地配置时原子替换 `settings.json`。
 
 配置保存到 `userData/settings.json`，Token 单独保存到 `userData/token.json`。任务活动期间禁止修改连接相关配置。
@@ -242,7 +242,7 @@ packages/
         client.ts
         auth.ts
         project.ts
-        branch.ts
+        client-branch.ts
         repository-file.ts
         archive.ts
       archive/
@@ -331,7 +331,6 @@ export interface TokenRecord {
 {
   "gitlabUrl": "http://gitlab.example.com",
   "projectId": "123",
-  "branch": "main",
   "token": "glpat-example-token"
 }
 ```
@@ -339,7 +338,7 @@ export interface TokenRecord {
 连接配置读取顺序：
 
 1. `userData/settings.json` 存在且有效时，以用户配置为准，忽略预置连接字段。
-2. 文件不存在或解析失败（备份为 `settings.json.bad`）时，用预置的 `gitlabUrl`、`projectId`、`branch` 作为首次启动配置；缺失字段使用产品默认值。
+2. 文件不存在或解析失败（备份为 `settings.json.bad`）时，用预置的 `gitlabUrl`、`projectId` 作为首次启动配置；缺失字段使用产品默认值。
 3. 首次启动不写入 `settings.json`；用户保存设置后才形成用户配置，此后新安装包不会覆盖。
 
 Token 保存格式：
@@ -374,7 +373,7 @@ Token 读取顺序：
 构建规则：
 
 - 开发者在打包前手工编辑 `resources/preset.json`，格式参考仓库中的 `resources/preset.example.json`；文件权限 `0600`。
-- 打包脚本只校验不生成：检查 JSON 格式、地址协议、`/api/v4` 后缀、项目 ID 和分支格式；非法值终止打包。
+- 打包脚本只校验不生成：检查 JSON 格式、地址协议、`/api/v4` 后缀和项目 ID 格式；非法值终止打包。
 - 文件不存在时创建空 `{}`，不覆盖已手工填写的内容。
 - Forge `extraResource` 将该文件放入安装包资源目录。
 - 生产包从 `process.resourcesPath/preset.json` 读取；开发环境从仓库根目录 `resources/preset.json` 读取。
@@ -389,7 +388,6 @@ Token 使用 GitLab `api` scope，因为上传需要 File API 写能力。管理
   "schemaVersion": 1,
   "gitlabUrl": "http://gitlab.example.com",
   "projectId": "123",
-  "branch": "main",
   "saveDirectory": null,
   "preferredReader": "node",
   "nodeReaderPath": null,
@@ -424,10 +422,10 @@ Token 使用 GitLab `api` scope，因为上传需要 File API 写能力。管理
 - 记录文件大小和修改时间，上传读取前再次 stat；等待确认期间文件变化时要求重新确认。
 - 保存目录可创建、可写。
 - 联网任务必须已有 Token、GitLab 地址和其他连接配置。
-- 查询项目、分支和远端同名文件。
-- 使用 `HEAD /projects/:projectId/repository/files/:path?ref=:branch` 获取文件是否存在及 `X-Gitlab-Last-Commit-Id`。
+- 查询项目和任务分支；任务分支不存在时，校验固定基础分支 `main` 是否存在。
+- 使用 `HEAD /projects/:projectId/repository/files/:path?ref=:taskBranch` 获取文件是否存在及 `X-Gitlab-Last-Commit-Id`。
 
-同名文件存在时，提示“将覆盖远端同名文件”。目标分支不存在时，提示源分支和拟创建分支。两者都必须得到用户确认。
+同名文件存在时（任务分支继承了 `main` 的模板文件），提示“将覆盖远端同名文件”，必须得到用户确认。任务分支本身自动创建，不需要额外确认。
 
 GitLab 不要求客户端在上传前检查远端文件是否被修改。如果不传并发前置条件，`PUT` 仍可提交成功并覆盖确认后的新修改；本方案使用 `last_commit_id` 降低该风险。
 
@@ -441,8 +439,10 @@ GitLab 不要求客户端在上传前检查远端文件是否被修改。如果�
 
 分支处理：
 
-- 仓库非空时，经确认后从项目默认分支创建目标分支。
-- 空仓库中可通过一次初始 Commit 创建目标分支。
+- 每次任务创建一个新分支，名称为 `系统用户名-主机名/东八区时间戳-taskId前6位`。
+- 新分支从固定基础分支 `main` 创建（`POST /repository/branches`，`ref=main`）；`main` 必须是只含少量占位文件的空模板。
+- 任务分支自动创建，不需要用户确认；若其继承的 `main` 模板中存在同名文件，仍要求覆盖确认。
+- 空仓库中可通过一次初始 Commit 创建任务分支。
 - 分支创建后上传失败时不自动删除分支，界面明确显示“分支已创建、文件未上传”。
 
 Commit 定位：
@@ -473,10 +473,11 @@ GitLab 对提交失败通常返回非具体原因的 `400`。收到后重新读�
 ### 7.3 下载归档
 
 ```text
-GET /projects/:projectId/repository/archive.zip?sha=:commitId
+GET /projects/:projectId/repository/archive.zip?sha=:taskBranch
 ```
 
-- 使用本任务 Commit ID，不使用可变分支名。
+- 优先使用本次任务分支名；任务分支唯一且创建后不再写入，分支 tip 即本次上传提交。
+- 定位 Commit ID 后校验分支 tip；不一致或分支查询失败时回退为 `sha=:commitId`，保证版本一致。
 - 先写入 `.dsm-<taskId>.zip.part`，完整写入后原子重命名为 ZIP。
 - 检查 `Content-Type`、`Content-Length`（存在时）、实际字节和空响应。
 - 归档默认上限 512 MiB。
@@ -540,7 +541,7 @@ Commit 解压完成”，不使用“完整性已验证”。
 - Token 预置和明文保存是已确认的产品决策，不得在实现时替换为系统安全存储。
 - 明文 Token 文件采用最小文件权限和原子写入，但不提供机密性保护。
 - Renderer 不读取已有 Token，不拥有 Node/Python、任意文件系统或命令执行能力。
-- 上传、覆盖和创建分支均需要用户确认。
+- 上传和覆盖需要用户确认；任务分支按固定规则自动创建。
 - GitLab 地址允许 HTTP 和 HTTPS，不强制协议。
 - 上传不自动重试；读取和下载只做有限、可识别错误的重试。
 - ZIP 必须执行路径、类型、条目数和解压总量检查，解压结果不执行。
@@ -667,7 +668,7 @@ pnpm install --frozen-lockfile
 迁移必须修正：
 
 - 当前代码从创建/更新响应读取 `commit_id`，但该接口不保证返回此字段；改为任务标记查询。
-- 当前代码按分支名下载归档；改为本任务 Commit ID。
+- 当前代码按分支名下载归档；改为按任务分支名下载，并校验分支 tip 后回退 Commit ID。
 - 当前同名文件检查只判断 200/404；增加 `last_commit_id` 并发保护。
 - 当前下载失败可能遗留部分 ZIP；改用 `.part` 并在最终失败时清理。
 - 当前上传没有自动重试问题以外的结果恢复；保持上传不自动重试并增加结果查询。
@@ -695,8 +696,8 @@ MVP 统一使用 Vitest 运行单元测试和集成测试，`tests/` 和根 `pnp
 
 `tests/integration/` 使用 fake `HttpTransport` 和系统临时目录，验证完整流程，不连接生产 GitLab：
 
-- 新文件上传、覆盖、分支创建和 Commit 定位。
-- 使用指定 Commit 下载归档，分支前进后版本不变。
+- 新文件上传、覆盖、每次任务自动创建分支和 Commit 定位。
+- 按任务分支下载归档，分支 tip 不一致时回退 Commit ID。
 - 上传成功、下载失败、解压失败和清理失败的状态转换。
 - `.part`、解压临时目录和正式时间戳目录的创建、重命名与清理。
 
@@ -727,13 +728,13 @@ MVP 保留一次针对专用 GitLab 测试项目的受控手工冒烟测试，�
 
 - Apple Silicon Mac 可安装并启动应用。
 - 没有 Token 时仍可启动、修改非敏感配置和选择本地文件。
-- 安装包可预置 GitLab 地址、项目 ID、分支和 Token；首次启动使用预置配置并写入明文 `token.json`，用户保存设置后以用户配置为准。
+- 安装包可预置 GitLab 地址、项目 ID 和 Token；首次启动使用预置配置并写入明文 `token.json`，用户保存设置后以用户配置为准。
 - 用户可替换或清除 Token；清除后预置值不会自动恢复。
 - Token 不返回 Renderer，不出现在配置、任务结果或日志中。
-- 可上传单个合法文件，并在覆盖和创建分支前确认。
+- 可上传单个合法文件，并在覆盖前确认；任务分支自动创建。
 - 上传只提交一次；超时后不自动产生重复 Commit。
 - 上传后通过任务标记定位 Commit ID，并下载该 Commit 的归档。
-- 分支后续前进不影响本次归档和重试的一致性。
+- 任务分支创建后不再写入；分支 tip 变化时回退 Commit ID，保证归档与重试的一致性。
 - 上传成功但下载、解压或清理失败时显示明确阶段和恢复动作。
 - 下载失败不遗留应用 `.part`，解压失败不生成看似成功的正式目录。
 - 恶意或超限 ZIP 无法写出目标目录或绕过资源限制。
@@ -747,7 +748,7 @@ MVP 保留一次针对专用 GitLab 测试项目的受控手工冒烟测试，�
 | 风险 | 影响 | 应对 |
 | --- | --- | --- |
 | 安装包或明文 Token 文件泄露 | 拿到安装包或用户目录访问权即可获得 Token | 已接受；使用专用、短期、可撤销 Token，限制分发并及时轮换 |
-| 完整归档下载 | 项目增大后速度慢且磁盘占用高 | 下载和解压上限，后续设计增量访问 |
+| 完整归档下载 | 项目增大后速度慢且磁盘占用高 | 每次任务从空模板 `main` 创建独立分支，归档只含 `main` 模板 + 本次文件；保留下载和解压上限 |
 | Base64 上传内存 | Main 可能瞬时占用约三份文件大小的内存 | 50 MiB 硬上限并在目标环境实测 |
 | GitLab 请求体或代理限制 | 目标实例可能提前拒绝上传 | 在 GitLab、反向代理和 WAF 上验证上限 |
 | 上传结果未知 | 超时可能已提交 | 禁止自动重试，通过任务标记查询 |

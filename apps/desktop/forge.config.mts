@@ -10,10 +10,12 @@ import path from 'node:path';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    icon: path.resolve('../../resources/icon'),
     extraResource: [
       path.resolve('../../resources/preset.json'),
       path.resolve('../../resources/dsm-file-reader.cjs'),
       path.resolve('../../resources/dsm-file-reader.py'),
+      path.resolve('../../resources/icon.png'),
     ],
     appBundleId: 'com.dsm-tool.desktop',
     ...(process.env.ELECTRON_ZIP_DIR
@@ -22,10 +24,18 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerDMG({ format: 'ULFO' }, ['darwin']),
+    new MakerDMG(
+      {
+        format: 'ULFO',
+        icon: path.resolve('../../resources/icon.icns'),
+      },
+      ['darwin'],
+    ),
     new MakerNSIS(
       {
         artifactName: 'DSM-File-Sync-${version}-${arch}-Setup.${ext}',
+        installerIcon: path.resolve('../../resources/icon.ico'),
+        uninstallerIcon: path.resolve('../../resources/icon.ico'),
         oneClick: false,
         perMachine: false,
         allowElevation: true,

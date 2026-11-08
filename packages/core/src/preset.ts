@@ -13,14 +13,12 @@ import { DsmError } from './errors.ts';
 export interface PresetConfig {
   gitlabUrl: string;
   projectId: string;
-  branch: string;
   token: string;
 }
 
 export const EMPTY_PRESET: Readonly<PresetConfig> = Object.freeze({
   gitlabUrl: '',
   projectId: '',
-  branch: '',
   token: '',
 });
 
@@ -34,17 +32,13 @@ export function parsePresetConfig(input: unknown): PresetConfig {
     stringValue(candidate.gitlabUrl, 'GitLab 地址'),
   );
   const projectId = stringValue(candidate.projectId, '项目 ID');
-  const branch = stringValue(candidate.branch, '目标分支');
   const token = stringValue(candidate.token, 'Token');
 
   if (projectId && (/\s/.test(projectId) || projectId.startsWith('/'))) {
     throw new DsmError('CONFIG_INVALID', '预置项目 ID 格式无效', 'CONFIG');
   }
-  if (branch && /\s/.test(branch)) {
-    throw new DsmError('CONFIG_INVALID', '预置分支名称不能包含空白', 'CONFIG');
-  }
 
-  return { gitlabUrl, projectId, branch, token };
+  return { gitlabUrl, projectId, token };
 }
 
 /**
@@ -56,7 +50,6 @@ export function createConfigFromPreset(preset: PresetConfig): AppConfig {
     ...DEFAULT_CONFIG,
     gitlabUrl: preset.gitlabUrl || DEFAULT_CONFIG.gitlabUrl,
     projectId: preset.projectId || DEFAULT_CONFIG.projectId,
-    branch: preset.branch || DEFAULT_CONFIG.branch,
   });
 }
 
