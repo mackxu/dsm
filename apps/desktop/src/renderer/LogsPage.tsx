@@ -82,8 +82,8 @@ export function LogsPage({ onNotice }: LogsPageProps): React.JSX.Element {
     <section className="logs-page">
       <div className="logs-header">
         <p className="lead">
-          日志保留最近 7 天，总量不超过 5
-          MiB。日志使用纯文本保存，支持全文搜索；Token、认证头和上传文件内容不会写入日志。
+          记录最近 7 天的同步过程，最多占用 5
+          MB。可以按关键词搜索；访问令牌、认证信息和文件内容不会写入日志。
         </p>
         <div className="action-row compact-row">
           <button
@@ -112,7 +112,7 @@ export function LogsPage({ onNotice }: LogsPageProps): React.JSX.Element {
       <form className="log-search" onSubmit={search}>
         <input
           value={query}
-          placeholder="搜索接口、状态码、阶段、Commit 或返回结果"
+          placeholder="搜索关键词"
           aria-label="搜索日志"
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -145,7 +145,7 @@ export function LogsPage({ onNotice }: LogsPageProps): React.JSX.Element {
             <span>
               {activeQuery
                 ? '尝试缩短关键词或检查大小写。'
-                : '同步任务、HTTP 请求和配置验证会记录在这里。'}
+                : '同步过程会记录在这里。'}
             </span>
           </div>
         )}

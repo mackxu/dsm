@@ -40,7 +40,7 @@ export async function resolveReaderChain(
 
   throw new DsmError(
     'READER_UNAVAILABLE',
-    `未找到可用的 Node 或 Python（优先：${readerLabel(selection.preferredReader)}），请在设置中填写白名单解释器的绝对路径`,
+    `未找到可用的 Node 或 Python（默认：${readerLabel(selection.preferredReader)}），请在高级设置中填写读取程序的完整路径`,
     'CHECK',
   );
 }

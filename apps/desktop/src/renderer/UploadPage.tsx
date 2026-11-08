@@ -7,6 +7,7 @@ import { errorMessage, formatBytes, unwrap } from './api.ts';
 interface UploadPageProps {
   bootstrap: BootstrapData;
   task: TaskSnapshot | null;
+  recentTasks: TaskSnapshot[];
   active: boolean;
   onTask: (task: TaskSnapshot) => void;
   onOpenSettings: () => void;
@@ -16,6 +17,7 @@ interface UploadPageProps {
 export function UploadPage({
   bootstrap,
   task,
+  recentTasks,
   active,
   onTask,
   onOpenSettings,
@@ -79,13 +81,12 @@ export function UploadPage({
       <div className="primary-column">
         <div className="section-heading">
           <div>
-            <span className="eyebrow">SINGLE FILE</span>
-            <h2>选择一份文件，构建独立归档</h2>
+            <h2>选择文件，开始同步</h2>
           </div>
           <span
             className={`token-chip ${bootstrap.token.configured ? 'ready' : ''}`}
           >
-            {bootstrap.token.configured ? '连接已配置' : '需要 Token'}
+            {bootstrap.token.configured ? '令牌已配置' : '未配置令牌'}
           </span>
         </div>
 
@@ -103,7 +104,7 @@ export function UploadPage({
           <p>
             {file
               ? `${formatBytes(file.size)} · 修改于 ${new Date(file.modifiedAt).toLocaleString()}`
-              : `单文件上限 ${formatBytes(bootstrap.config.maxUploadBytes)}`}
+              : `单个文件最大 ${formatBytes(bootstrap.config.maxUploadBytes)}`}
           </p>
           <button
             type="button"
@@ -129,63 +130,41 @@ export function UploadPage({
               className="text-button"
               onClick={onOpenSettings}
             >
-              配置 Token
+              配置访问令牌
             </button>
           )}
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => void openResults()}
-          >
-            打开结果目录
-          </button>
         </div>
         {!bootstrap.token.configured && (
-          <p className="helper-text">
-            没有 Token 仍可选择和检查本地文件；上传、下载会保持禁用。
-          </p>
+          <p className="helper-text">配置访问令牌后即可开始同步。</p>
         )}
       </div>
 
       <aside className="side-column">
-        <div className="info-panel">
-          <span className="eyebrow">DESTINATION</span>
-          <h3>{bootstrap.config.branch}</h3>
-          <dl>
-            <div>
-              <dt>GitLab</dt>
-              <dd>{bootstrap.config.gitlabUrl || '尚未配置'}</dd>
-            </div>
-            <div>
-              <dt>项目</dt>
-              <dd>{bootstrap.config.projectId || '尚未配置'}</dd>
-            </div>
-            <div>
-              <dt>归档根目录</dt>
-              <dd title={bootstrap.resolvedSaveDirectory}>
-                {bootstrap.resolvedSaveDirectory}
-              </dd>
-            </div>
-          </dl>
-          <button
-            type="button"
-            className="text-button compact"
-            onClick={onOpenSettings}
-          >
-            编辑连接设置
-          </button>
-        </div>
-
         <div className="info-panel task-summary">
-          <span className="eyebrow">RECENT TASK</span>
-          {task ? (
-            <>
-              <h3>{task.fileName ?? '任务'}</h3>
-              <p>{statusText(task)}</p>
-              {task.commitId && (
-                <code className="commit-id">{task.commitId.slice(0, 12)}</code>
-              )}
-            </>
+          <div className="task-summary-head">
+            <span className="eyebrow">最近任务</span>
+            <button
+              type="button"
+              className="text-button task-summary-link"
+              onClick={() => void openResults()}
+            >
+              打开保存位置
+            </button>
+          </div>
+          {recentTasks.length > 0 ? (
+            <ul className="recent-task-list">
+              {recentTasks.map((item) => (
+                <li key={item.taskId} className="recent-task-item">
+                  <strong title={item.fileName ?? undefined}>
+                    {item.fileName ?? '任务'}
+                  </strong>
+                  <span>{statusText(item)}</span>
+                  <time dateTime={item.updatedAt}>
+                    {new Date(item.updatedAt).toLocaleString()}
+                  </time>
+                </li>
+              ))}
+            </ul>
           ) : (
             <>
               <h3>还没有任务</h3>
@@ -195,11 +174,8 @@ export function UploadPage({
         </div>
 
         <div className="safety-note">
-          <strong>归档版本已锁定</strong>
-          <p>
-            下载与重试使用本次上传产生的 Commit
-            ID；后续分支提交不会改变本次结果。
-          </p>
+          <strong>本次结果已固定</strong>
+          <p>后续向分支推送新内容，不会影响已经同步的文件。</p>
         </div>
       </aside>
     </div>
@@ -207,19 +183,20 @@ export function UploadPage({
 }
 
 function statusText(task: TaskSnapshot): string {
-  const labels: Partial<Record<TaskSnapshot['status'], string>> = {
-    CHECKING: '正在检查远端状态',
-    WAITING_FOR_TOKEN: '等待 Token',
-    WAITING_FOR_OVERWRITE_CONFIRMATION: '等待覆盖确认',
-    WAITING_FOR_BRANCH_CONFIRMATION: '等待分支创建确认',
+  const labels: Record<TaskSnapshot['status'], string> = {
+    IDLE: '空闲',
+    CHECKING: '正在检查文件状态',
+    WAITING_FOR_TOKEN: '等待访问令牌',
+    WAITING_FOR_OVERWRITE_CONFIRMATION: '等待确认覆盖',
+    WAITING_FOR_BRANCH_CONFIRMATION: '等待确认创建分支',
     UPLOADING: '正在上传',
-    UPLOADED: '上传完成，正在定位 Commit',
-    DOWNLOADING: '正在下载归档',
-    EXTRACTING: '正在安全解压',
+    UPLOADED: '正在确认本次提交',
+    DOWNLOADING: '正在下载压缩包',
+    EXTRACTING: '正在解压文件',
     CLEANING: '正在清理临时文件',
-    SUCCESS: '上传并解压完成（仅保留本次文件）',
-    SUCCESS_WITH_WARNING: '完成，但有清理警告',
-    FAILED: task.failure?.message ?? '任务失败',
+    SUCCESS: '同步完成',
+    SUCCESS_WITH_WARNING: '同步完成，有提示',
+    FAILED: task.failure?.message ?? '同步失败',
   };
-  return labels[task.status] ?? task.status;
+  return labels[task.status];
 }

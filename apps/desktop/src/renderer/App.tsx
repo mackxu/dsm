@@ -33,6 +33,7 @@ export function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('upload');
   const [bootstrap, setBootstrap] = useState<BootstrapData | null>(null);
   const [task, setTask] = useState<TaskSnapshot | null>(null);
+  const [recentTasks, setRecentTasks] = useState<TaskSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [settingsDirty, setSettingsDirty] = useState(false);
@@ -45,6 +46,7 @@ export function App(): React.JSX.Element {
         if (!active) return;
         setBootstrap(data);
         setTask(data.currentTask);
+        setRecentTasks(mergeRecentTasks(data.currentTask, data.recentTasks));
       })
       .catch((error: unknown) => {
         if (active) setNotice(errorMessage(error));
@@ -53,7 +55,7 @@ export function App(): React.JSX.Element {
         if (active) setLoading(false);
       });
     const unsubscribe = window.dsm.onTaskUpdate((snapshot) => {
-      if (active) setTask(snapshot);
+      if (active) applyTask(snapshot);
     });
     return () => {
       active = false;
@@ -71,6 +73,7 @@ export function App(): React.JSX.Element {
   ): Promise<void> {
     setBootstrap(data);
     setTask(data.currentTask);
+    setRecentTasks((current) => mergeRecentTasks(data.currentTask, current));
     setSettingsDirty(false);
 
     const current = data.currentTask;
@@ -80,7 +83,7 @@ export function App(): React.JSX.Element {
       current?.recoveryActions.includes('CONFIGURE_TOKEN')
     ) {
       try {
-        setTask(
+        applyTask(
           await unwrap(
             window.dsm.recoverTask(current.taskId, 'CONFIGURE_TOKEN'),
           ),
@@ -89,6 +92,16 @@ export function App(): React.JSX.Element {
         setNotice(errorMessage(error));
       }
     }
+  }
+
+  function applyTask(snapshot: TaskSnapshot): void {
+    setTask(snapshot);
+    setRecentTasks((current) =>
+      [
+        snapshot,
+        ...current.filter((item) => item.taskId !== snapshot.taskId),
+      ].slice(0, 2),
+    );
   }
 
   function handleTokenChanged(status: TokenStatus): void {
@@ -108,7 +121,7 @@ export function App(): React.JSX.Element {
     return (
       <main className="boot-screen">
         <div className="brand-mark small">DSM</div>
-        <p>正在读取本地配置…</p>
+        <p>正在启动…</p>
       </main>
     );
   }
@@ -132,10 +145,7 @@ export function App(): React.JSX.Element {
         {page === 'upload' ? (
           <div className="brand">
             <div className="brand-mark">DSM</div>
-            <div>
-              <strong>文件同步助手</strong>
-              <span>GitLab → 本地归档</span>
-            </div>
+            <strong>文件同步助手</strong>
           </div>
         ) : (
           <div className="app-bar-leading">
@@ -147,9 +157,12 @@ export function App(): React.JSX.Element {
         )}
 
         <div className="app-bar-actions">
-          <div className="header-status">
+          <div
+            className="header-status"
+            title={active ? '任务运行中' : '准备就绪'}
+            aria-label={active ? '任务运行中' : '准备就绪'}
+          >
             <span className={active ? 'pulse active' : 'pulse'} />
-            {active ? '任务运行中' : '准备就绪'}
           </div>
           {page === 'upload' && (
             <>
@@ -186,12 +199,13 @@ export function App(): React.JSX.Element {
             </div>
           )}
 
-          <section hidden={page !== 'upload'}>
+          <section className="upload-page" hidden={page !== 'upload'}>
             <UploadPage
               bootstrap={bootstrap}
               task={task}
+              recentTasks={recentTasks}
               active={active}
-              onTask={setTask}
+              onTask={applyTask}
               onOpenSettings={() => setPage('settings')}
               onNotice={setNotice}
             />
@@ -217,11 +231,25 @@ export function App(): React.JSX.Element {
       {task && (
         <TaskDialog
           task={task}
-          onTask={setTask}
+          onTask={applyTask}
           onOpenSettings={() => setPage('settings')}
           onNotice={setNotice}
         />
       )}
     </div>
   );
+}
+
+function mergeRecentTasks(
+  current: TaskSnapshot | null,
+  recent: TaskSnapshot[],
+): TaskSnapshot[] {
+  const seen = new Set<string>();
+  return [...(current ? [current] : []), ...recent]
+    .filter((task) => {
+      if (seen.has(task.taskId)) return false;
+      seen.add(task.taskId);
+      return true;
+    })
+    .slice(0, 2);
 }

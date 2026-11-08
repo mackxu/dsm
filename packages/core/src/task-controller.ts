@@ -108,7 +108,7 @@ export class TaskController {
           failure: {
             code: 'TOKEN_MISSING',
             stage: 'CHECK',
-            message: '请配置 GitLab Token 后继续',
+            message: '请配置访问令牌后继续',
             recoverable: true,
           },
           recoveryActions: ['CONFIGURE_TOKEN'],
@@ -238,7 +238,7 @@ export class TaskController {
       if (!this.current?.commitId) {
         throw new DsmError(
           'TASK_NOT_FOUND',
-          '当前任务没有可用于恢复的 Commit ID',
+          '当前任务没有可用于恢复的版本信息',
           'CHECK',
         );
       }
@@ -298,7 +298,7 @@ export class TaskController {
       failure: {
         code: 'TOKEN_MISSING',
         stage: 'CHECK',
-        message: '请配置 GitLab Token 后继续',
+        message: '请配置访问令牌后继续',
         recoverable: true,
       },
       recoveryActions: ['CONFIGURE_TOKEN'],
@@ -394,7 +394,7 @@ export class TaskController {
 
     if (!commitId) {
       return await this.failProjectUnknown(
-        new Error('上传未确认产生 Commit，任务结果未知'),
+        new Error('上传结果未确认，任务状态未知'),
         runtime,
       );
     }
@@ -603,7 +603,7 @@ export class TaskController {
     return this.applyFailure(
       new DsmError(
         'UPLOAD_RESULT_UNKNOWN',
-        `上传结果未知，可能已经产生 Commit。${dsmError.message}`,
+        `上传结果未知，可能已经生成了提交。${dsmError.message}`,
         'COMMIT_LOOKUP',
         true,
       ),

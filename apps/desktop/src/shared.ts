@@ -36,6 +36,7 @@ export interface BootstrapData {
   appVersion: string;
   platformLabel: string;
   currentTask: TaskSnapshot | null;
+  recentTasks: TaskSnapshot[];
 }
 
 export interface ConnectionResult {

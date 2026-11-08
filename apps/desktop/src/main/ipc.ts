@@ -29,6 +29,7 @@ import type {
 } from '../shared.ts';
 import type { ConfigStore } from './config-store.ts';
 import type { Logger } from './logger.ts';
+import type { TaskHistoryStore } from './task-history-store.ts';
 import type { TokenStore } from './token-store.ts';
 import type { WhitelistedFileReader } from './whitelisted-file-reader.ts';
 
@@ -40,6 +41,7 @@ export interface IpcServices {
   transport: HttpTransport;
   platform: PlatformAdapter;
   taskController: TaskController;
+  taskHistory: TaskHistoryStore;
   fileReader: WhitelistedFileReader;
   documentsDirectory: string;
   appVersion: string;
@@ -117,7 +119,7 @@ export function setupIpc(services: IpcServices): void {
         if (!isRemoteConfigReady(candidate)) {
           throw new DsmError(
             'CONFIG_REQUIRED',
-            '已配置 Token 时，必须先填写 GitLab 地址和项目 ID',
+            '已配置访问令牌时，请先填写服务地址和项目',
             'CONFIG',
           );
         }
@@ -131,7 +133,7 @@ export function setupIpc(services: IpcServices): void {
 
       if (newToken) {
         await services.tokenStore.setUserToken(newToken);
-        await services.logger.log('INFO', 'CONFIG', 'Token 验证并保存成功', {
+        await services.logger.log('INFO', 'CONFIG', '访问令牌验证并保存成功', {
           details: { username: connection?.username },
         });
       }
@@ -146,7 +148,7 @@ export function setupIpc(services: IpcServices): void {
     });
     const token = await services.tokenStore.getToken();
     if (!token) {
-      throw new DsmError('TOKEN_MISSING', '请先配置 Token', 'CONFIG', true);
+      throw new DsmError('TOKEN_MISSING', '请先配置访问令牌', 'CONFIG', true);
     }
     return testConnection(config, token, services);
   });
@@ -154,7 +156,7 @@ export function setupIpc(services: IpcServices): void {
   handle<ReaderProbeResult>('dsm:test-file-reader', async (_event, value) => {
     const selection = parseReaderSelection(value);
     const result = await dialog.showOpenDialog(services.getMainWindow(), {
-      title: '选择受 DSM 管理的文件进行读取测试',
+      title: '选择要测试的文件',
       properties: ['openFile'],
     });
     if (result.canceled || !result.filePaths[0]) {
@@ -165,7 +167,7 @@ export function setupIpc(services: IpcServices): void {
 
   handle('dsm:clear-token', async () => {
     const status = await services.tokenStore.clear();
-    await services.logger.log('INFO', 'CONFIG', '用户清除了 Token');
+    await services.logger.log('INFO', 'CONFIG', '用户清除了访问令牌');
     return status;
   });
 
@@ -258,6 +260,7 @@ async function bootstrap(services: IpcServices): Promise<BootstrapData> {
     appVersion: services.appVersion,
     platformLabel: services.platformLabel,
     currentTask: services.taskController.getCurrentTask(),
+    recentTasks: await services.taskHistory.list(),
   };
 }
 
@@ -293,9 +296,7 @@ async function testConnection(
 ): Promise<ConnectionResult> {
   const client = GitLabClient.fromConfig(config, token, services.transport);
   const result = await client.testConnection();
-  await services.logger.log('INFO', 'CONFIG', 'GitLab 连接验证成功', {
-    details: { projectPath: result.project.path_with_namespace },
-  });
+  await services.logger.log('INFO', 'CONFIG', '连接验证成功');
   return {
     username: result.user.username,
     userId: result.user.id,
@@ -338,7 +339,7 @@ function parseOptionalToken(value: unknown): string | null {
     return null;
   }
   if (typeof value !== 'string') {
-    throw new DsmError('INVALID_REQUEST', 'Token 格式无效', 'CONFIG');
+    throw new DsmError('INVALID_REQUEST', '访问令牌格式无效', 'CONFIG');
   }
   return value.trim() || null;
 }

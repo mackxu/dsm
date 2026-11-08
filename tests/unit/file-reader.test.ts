@@ -574,7 +574,7 @@ describe.skipIf(!pythonCommand)('WhitelistedFileReader Python fallback', () => {
     expect(log).toHaveBeenCalledWith(
       'INFO',
       'FILE',
-      '优先读取器 Node 不可用，使用 Python',
+      '默认读取方式 Node 不可用，已改用 Python',
       {
         details: {
           readerKind: 'python',

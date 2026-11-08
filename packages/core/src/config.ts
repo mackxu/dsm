@@ -105,7 +105,7 @@ export function normalizeReaderSelection(input: {
   } else {
     throw new DsmError(
       'CONFIG_INVALID',
-      '优先读取器必须是 node 或 python',
+      '默认读取方式必须是 node 或 python',
       'CONFIG',
     );
   }
@@ -134,17 +134,17 @@ export function normalizeGitLabUrl(value: string): string {
   try {
     url = new URL(trimmed);
   } catch {
-    throw new DsmError('CONFIG_INVALID', 'GitLab 地址格式无效', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '服务地址格式无效', 'CONFIG');
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new DsmError('CONFIG_INVALID', 'GitLab 地址仅支持 HTTP 或 HTTPS', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '服务地址仅支持 HTTP 或 HTTPS', 'CONFIG');
   }
   if (url.username || url.password) {
-    throw new DsmError('CONFIG_INVALID', 'GitLab 地址不能包含用户名或密码', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '服务地址不能包含用户名或密码', 'CONFIG');
   }
   if (url.pathname === '/api/v4' || url.pathname.endsWith('/api/v4/')) {
-    throw new DsmError('CONFIG_INVALID', 'GitLab 地址不应包含 /api/v4', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '服务地址不应包含 /api/v4', 'CONFIG');
   }
 
   return trimmed;
@@ -178,23 +178,23 @@ export function validateAppConfig(
 
   if (options.requireRemote) {
     if (!gitlabUrl) {
-      throw new DsmError('CONFIG_REQUIRED', '请配置 GitLab 地址', 'CONFIG');
+      throw new DsmError('CONFIG_REQUIRED', '请配置服务地址', 'CONFIG');
     }
     if (!projectId) {
-      throw new DsmError('CONFIG_REQUIRED', '请配置项目 ID', 'CONFIG');
+      throw new DsmError('CONFIG_REQUIRED', '请配置项目', 'CONFIG');
     }
     if (!branch) {
       throw new DsmError('CONFIG_REQUIRED', '请配置分支', 'CONFIG');
     }
   }
   if (projectId && (/\s/.test(projectId) || projectId.startsWith('/'))) {
-    throw new DsmError('CONFIG_INVALID', '项目 ID 格式无效', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '项目格式无效', 'CONFIG');
   }
   if (branch && /\s/.test(branch)) {
     throw new DsmError('CONFIG_INVALID', '分支名称不能包含空白', 'CONFIG');
   }
   if (candidate.keepArchive !== undefined && typeof candidate.keepArchive !== 'boolean') {
-    throw new DsmError('CONFIG_INVALID', '保留 ZIP 必须是布尔值', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '保留压缩包必须是布尔值', 'CONFIG');
   }
 
   const archiveInput = candidate.archiveLimits ?? DEFAULT_CONFIG.archiveLimits;

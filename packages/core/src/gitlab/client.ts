@@ -96,7 +96,7 @@ export class GitLabApiError extends DsmError {
   ) {
     super(
       gitLabErrorCode(responseStatus),
-      `GitLab 请求失败（${responseStatus}）：${message}`,
+      `同步服务请求失败（${responseStatus}）：${message}`,
       stage,
       responseStatus === 408 ||
         responseStatus === 429 ||
@@ -130,8 +130,8 @@ function safeErrorMessage(status: number, text: string): string {
   } catch {
     // Keep a bounded response body.
   }
-  if (status === 401) return 'Token 无效或已过期';
-  if (status === 403) return '当前 Token 无权执行此操作';
+  if (status === 401) return '访问令牌无效或已过期';
+  if (status === 403) return '当前访问令牌无权执行此操作';
   return message.replace(/glpat-[A-Za-z0-9_-]+/g, '[REDACTED]');
 }
 
@@ -143,7 +143,7 @@ export class GitLabClient {
 
   constructor(private readonly options: GitLabClientOptions) {
     if (!options.token) {
-      throw new DsmError('TOKEN_MISSING', '请先配置 GitLab Token', 'CHECK', true);
+      throw new DsmError('TOKEN_MISSING', '请先配置访问令牌', 'CHECK', true);
     }
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.token = options.token;
@@ -389,7 +389,7 @@ export class GitLabClient {
     if (!contentType.includes('zip') && !contentType.includes('octet-stream')) {
       throw new DsmError(
         'ARCHIVE_INVALID',
-        `GitLab 返回了非 ZIP 内容：${contentType || '未知类型'}`,
+        `同步服务返回了无法识别的压缩包：${contentType || '未知类型'}`,
         'DOWNLOAD',
       );
     }
@@ -401,7 +401,7 @@ export class GitLabClient {
       );
     }
     if (!response.body) {
-      throw new DsmError('ARCHIVE_INVALID', 'GitLab 返回了空归档', 'DOWNLOAD');
+      throw new DsmError('ARCHIVE_INVALID', '同步服务返回了空压缩包', 'DOWNLOAD');
     }
 
     await pipeline(
@@ -480,8 +480,8 @@ export class GitLabClient {
       throw new DsmError(
         'NETWORK_ERROR',
         error instanceof Error && error.name === 'TimeoutError'
-          ? 'GitLab 请求超时'
-          : '无法连接 GitLab',
+          ? '请求超时'
+          : '无法连接同步服务',
         stage,
         true,
       );

@@ -23,7 +23,7 @@ export interface ResolvedToken {
 
 export function parseTokenRecord(input: unknown): TokenRecord {
   if (!input || typeof input !== 'object') {
-    throw new DsmError('CONFIG_INVALID', 'Token 文件格式无效', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '访问令牌记录格式无效', 'CONFIG');
   }
   const candidate = input as Partial<TokenRecord>;
   if (
@@ -32,7 +32,7 @@ export function parseTokenRecord(input: unknown): TokenRecord {
     (candidate.source !== 'preset' && candidate.source !== 'user') ||
     typeof candidate.updatedAt !== 'string'
   ) {
-    throw new DsmError('CONFIG_INVALID', 'Token 文件格式无效', 'CONFIG');
+    throw new DsmError('CONFIG_INVALID', '访问令牌记录格式无效', 'CONFIG');
   }
   return {
     schemaVersion: 1,

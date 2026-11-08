@@ -12,18 +12,18 @@ interface TaskDialogProps {
 
 const STATUS_LABELS: Record<TaskSnapshot['status'], string> = {
   IDLE: '空闲',
-  CHECKING: '检查远端状态',
-  WAITING_FOR_TOKEN: '等待 Token',
-  WAITING_FOR_OVERWRITE_CONFIRMATION: '等待覆盖确认',
-  WAITING_FOR_BRANCH_CONFIRMATION: '等待分支确认',
-  UPLOADING: '上传文件',
-  UPLOADED: '定位本次 Commit',
-  DOWNLOADING: '下载指定 Commit 归档',
-  EXTRACTING: '安全解压',
-  CLEANING: '清理临时文件',
-  SUCCESS: '任务完成',
-  SUCCESS_WITH_WARNING: '完成，有清理警告',
-  FAILED: '任务失败',
+  CHECKING: '检查文件状态',
+  WAITING_FOR_TOKEN: '等待访问令牌',
+  WAITING_FOR_OVERWRITE_CONFIRMATION: '等待确认覆盖',
+  WAITING_FOR_BRANCH_CONFIRMATION: '等待确认分支',
+  UPLOADING: '正在上传',
+  UPLOADED: '正在确认本次提交',
+  DOWNLOADING: '正在下载压缩包',
+  EXTRACTING: '正在解压文件',
+  CLEANING: '正在清理临时文件',
+  SUCCESS: '同步完成',
+  SUCCESS_WITH_WARNING: '完成，有提示',
+  FAILED: '同步失败',
 };
 
 const ACTIVE_STATUSES = new Set<TaskSnapshot['status']>([
@@ -143,17 +143,19 @@ export function TaskDialog({
             <dd>{task.branch ?? '—'}</dd>
           </div>
           <div>
-            <dt>Commit</dt>
-            <dd>{task.commitId ?? '尚未定位'}</dd>
+            <dt>版本号</dt>
+            <dd title={task.commitId ?? undefined}>
+              {task.commitId ? task.commitId.slice(0, 8) : '等待生成'}
+            </dd>
           </div>
           {task.branchCreated && (
             <div>
-              <dt>远端副作用</dt>
-              <dd>{task.branch} 分支已创建</dd>
+              <dt>分支变更</dt>
+              <dd>已创建分支 {task.branch}</dd>
             </div>
           )}
           <div>
-            <dt>结果目录</dt>
+            <dt>保存位置</dt>
             <dd title={task.resultDirectory ?? undefined}>
               {task.resultDirectory ?? '—'}
             </dd>
@@ -185,8 +187,8 @@ export function TaskDialog({
           <>
             <p className="helper-text">
               {task.sourceBranch
-                ? `将从 ${task.sourceBranch} 创建分支 ${task.branch}。`
-                : `项目为空仓库，将通过一次初始 Commit 创建分支 ${task.branch}。`}
+                ? `将从分支 ${task.sourceBranch} 创建新分支 ${task.branch}。`
+                : `项目还没有任何提交，将创建分支 ${task.branch} 并写入第一个文件。`}
             </p>
             <div className="dialog-actions">
               <button
@@ -219,7 +221,7 @@ export function TaskDialog({
                 onOpenSettings();
               }}
             >
-              配置 Token
+              配置访问令牌
             </button>
           </div>
         )}
@@ -260,7 +262,7 @@ export function TaskDialog({
             className="text-button reveal-button"
             onClick={() => void reveal(task.resultDirectory as string)}
           >
-            在文件管理器中显示结果
+            在文件夹中显示
           </button>
         )}
       </section>
@@ -270,13 +272,13 @@ export function TaskDialog({
 
 function taskMessage(task: TaskSnapshot): string {
   if (task.status === 'SUCCESS') {
-    return '上传并从目标 Commit 解压完成，结果目录仅保留本次上传的文件。首版仅确认指定 Commit 的归档中存在目标文件，不执行内容完整性验证。';
+    return '同步完成，文件已保存到本地。保存位置仅包含本次同步的文件。';
   }
   if (task.status === 'SUCCESS_WITH_WARNING') {
-    return `主流程已完成，但临时文件未完全清理。${task.warning ?? ''}`;
+    return `同步已完成，但临时文件未能完全清理。${task.warning ?? ''}`;
   }
   if (task.status === 'FAILED') {
-    return task.failure?.message ?? '任务执行失败';
+    return task.failure?.message ?? '同步失败';
   }
   return STATUS_LABELS[task.status];
 }
@@ -302,7 +304,7 @@ function stageClass(status: TaskSnapshot['status'], stage: string): string {
 
 function recoveryLabel(action: RecoveryAction): string {
   const labels: Record<RecoveryAction, string> = {
-    CONFIGURE_TOKEN: '配置 Token',
+    CONFIGURE_TOKEN: '配置访问令牌',
     QUERY_COMMIT: '查询上传结果',
     RETRY_DOWNLOAD: '重试下载',
     RETRY_EXTRACTION: '重试解压',

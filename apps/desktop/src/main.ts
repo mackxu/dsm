@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, session } from 'electron';
+import { app, BrowserWindow, dialog, screen, session } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -14,7 +14,13 @@ import {
   ElectronPlatform,
 } from './main/platform/electron-platform.ts';
 import { PresetStore } from './main/preset-store.ts';
+import { TaskHistoryStore } from './main/task-history-store.ts';
 import { TokenStore } from './main/token-store.ts';
+import {
+  fitWindowToWorkArea,
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+} from './main/window-size.ts';
 import { WhitelistedFileReader } from './main/whitelisted-file-reader.ts';
 
 let mainWindow: BrowserWindow | null = null;
@@ -41,11 +47,13 @@ function getLiveMainWindow(): BrowserWindow | null {
 }
 
 function createWindow(): BrowserWindow {
+  const windowSize = fitWindowToWorkArea(
+    screen.getPrimaryDisplay().workAreaSize,
+  );
   const window = new BrowserWindow({
-    width: 1180,
-    height: 780,
-    minWidth: 940,
-    minHeight: 640,
+    ...windowSize,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#f4f6f2',
     show: false,
@@ -150,6 +158,7 @@ app
     });
     const configStore = new ConfigStore(paths.userData, presetStore);
     const tokenStore = new TokenStore(paths.userData, presetStore);
+    const taskHistory = new TaskHistoryStore(paths.userData);
     const resourcesDirectory = app.isPackaged
       ? process.resourcesPath
       : path.resolve(app.getAppPath(), '../../resources');
@@ -185,6 +194,13 @@ app
       onUpdate: (snapshot) => {
         const window = getLiveMainWindow();
         if (window) window.webContents.send('dsm:task-update', snapshot);
+        void taskHistory.record(snapshot).catch((error: unknown) => {
+          void logger.log('WARN', 'TASK', '最近任务记录保存失败', {
+            details: {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+        });
         if (snapshot.status === previousStatus) return;
         previousStatus = snapshot.status;
         void logger.log(
@@ -217,6 +233,7 @@ app
       transport,
       platform,
       taskController,
+      taskHistory,
       fileReader,
       documentsDirectory: paths.documents,
       appVersion: app.getVersion(),

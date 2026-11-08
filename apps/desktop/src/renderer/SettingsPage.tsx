@@ -1,23 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { AppConfig, TokenStatus } from '@dsm/core';
-import type {
-  BootstrapData,
-  ConnectionResult,
-  ReaderProbeResult,
-} from '../shared.ts';
+import type { BootstrapData, ReaderProbeResult } from '../shared.ts';
 import { errorMessage, formatBytes, unwrap } from './api.ts';
 
 const READER_LABELS: Record<'node' | 'python', string> = {
-  node: 'Node',
+  node: 'Node.js',
   python: 'Python',
 };
 
 const READER_SOURCE_LABELS: Record<'config' | 'environment' | 'auto', string> =
   {
-    config: '设置路径',
-    environment: '环境变量',
-    auto: '自动探测',
+    config: '手动填写',
+    environment: '系统环境',
+    auto: '自动查找',
   };
 
 interface SettingsPageProps {
@@ -43,7 +39,6 @@ export function SettingsPage({
   const [testing, setTesting] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [probing, setProbing] = useState(false);
-  const [connection, setConnection] = useState<ConnectionResult | null>(null);
   const [probeResult, setProbeResult] = useState<ReaderProbeResult | null>(
     null,
   );
@@ -97,9 +92,8 @@ export function SettingsPage({
       );
       setToken('');
       setForm(result.bootstrap.config);
-      setConnection(result.connection);
       onSaved(result.bootstrap, Boolean(submittedToken));
-      onNotice(submittedToken ? '设置与 Token 已保存' : '设置已保存');
+      onNotice(submittedToken ? '设置与访问令牌已保存' : '设置已保存');
     } catch (error) {
       if (moreRef.current) moreRef.current.open = true;
       onNotice(errorMessage(error));
@@ -111,9 +105,8 @@ export function SettingsPage({
   async function test(): Promise<void> {
     setTesting(true);
     try {
-      const result = await unwrap(window.dsm.testConnection());
-      setConnection(result);
-      onNotice(`连接成功：${result.projectPath}`);
+      await unwrap(window.dsm.testConnection());
+      onNotice('连接成功');
     } catch (error) {
       onNotice(errorMessage(error));
     } finally {
@@ -122,16 +115,15 @@ export function SettingsPage({
   }
 
   async function clearToken(): Promise<void> {
-    if (!window.confirm('确定清除当前 Token？预置 Token 不会自动恢复。')) {
+    if (!window.confirm('确定清除当前访问令牌？预置令牌不会自动恢复。')) {
       return;
     }
     setClearing(true);
     try {
       const status = await unwrap(window.dsm.clearToken());
       setToken('');
-      setConnection(null);
       onTokenChanged(status);
-      onNotice('Token 已清除');
+      onNotice('访问令牌已清除');
     } catch (error) {
       onNotice(errorMessage(error));
     } finally {
@@ -151,12 +143,12 @@ export function SettingsPage({
       );
       setProbeResult(result);
       const prefix = result.fallbackUsed
-        ? `优先读取器 ${READER_LABELS[result.preferredReader]} 不可用，已使用 ${READER_LABELS[result.usedReader]}。`
+        ? `默认读取方式 ${READER_LABELS[result.preferredReader]} 不可用，已改用 ${READER_LABELS[result.usedReader]}。`
         : '';
       onNotice(
         result.identical
-          ? `${prefix}两种读取方式内容一致，请确认该文件是否受 DSM 加密`
-          : `${prefix}${READER_LABELS[result.usedReader]} 读取内容与主进程不同，通常说明已解密`,
+          ? `${prefix}两次读取结果一致，文件可能未加密`
+          : `${prefix}两次读取结果不同，通常说明已成功解密`,
       );
     } catch (error) {
       onNotice(errorMessage(error));
@@ -176,7 +168,7 @@ export function SettingsPage({
       <section className="settings-section">
         <div className="section-heading">
           <div>
-            <span className="eyebrow">BASIC</span>
+            <span className="eyebrow">基础</span>
             <h2>基础设置</h2>
           </div>
           {locked && <span className="locked-chip">任务期间配置已锁定</span>}
@@ -200,56 +192,30 @@ export function SettingsPage({
                 disabled={clearing}
                 onClick={() => void clearToken()}
               >
-                {clearing ? '清除中…' : '清除 Token'}
+                {clearing ? '清除中…' : '清除令牌'}
               </button>
             )}
           </div>
           <label className="field">
-            <span>新 Token</span>
+            <span>更新访问令牌</span>
             <input
               type="password"
               value={token}
               autoComplete="off"
               spellCheck={false}
-              placeholder="glpat-…（留空表示不修改）"
+              placeholder="粘贴新的访问令牌，留空则不修改"
               onChange={(event) => setToken(event.target.value)}
             />
           </label>
           <small className="token-hint">
-            Token 仅在 Main 进程使用，不会回填或写入日志；需要
-            <code>api</code> 权限。
+            访问令牌仅用于连接同步服务，不会显示在界面或写入日志。
           </small>
-          {connection && (
-            <div className="connection-result">
-              <dl>
-                <div>
-                  <dt>项目</dt>
-                  <dd>{connection.projectPath}</dd>
-                </div>
-                <div>
-                  <dt>用户</dt>
-                  <dd>
-                    {connection.username} ({connection.userId})
-                  </dd>
-                </div>
-                <div>
-                  <dt>默认分支</dt>
-                  <dd>{connection.defaultBranch ?? '空仓库'}</dd>
-                </div>
-                <div>
-                  <dt>目标分支</dt>
-                  <dd>{connection.branchExists ? '已存在' : '需要创建确认'}</dd>
-                </div>
-              </dl>
-              <small>连接成功不代表目标分支允许写入。</small>
-            </div>
-          )}
         </div>
 
         <fieldset className="settings-config-fieldset" disabled={locked}>
           <div className="field-grid">
             <label className="field wide">
-              <span>保存目录</span>
+              <span>保存位置</span>
               <div className="input-action">
                 <input
                   value={form.saveDirectory ?? ''}
@@ -262,7 +228,7 @@ export function SettingsPage({
                   选择…
                 </button>
               </div>
-              <small>留空时使用文档目录下的 DSM。</small>
+              <small>留空时保存到文档目录下的 DSM 文件夹。</small>
             </label>
           </div>
         </fieldset>
@@ -271,10 +237,10 @@ export function SettingsPage({
       <details className="settings-section more-section" ref={moreRef}>
         <summary>
           <div>
-            <span className="eyebrow">MORE</span>
-            <h2>更多设置</h2>
+            <span className="eyebrow">更多</span>
+            <h2>更多配置</h2>
           </div>
-          <span className="more-hint">连接信息 · 超时 · 读取器 · 归档</span>
+          <span className="more-hint">连接 · 超时 · 文件读取 · 压缩包</span>
           <span className="more-chevron" aria-hidden="true">
             ›
           </span>
@@ -286,19 +252,19 @@ export function SettingsPage({
         >
           <div className="field-grid">
             <label className="field wide">
-              <span>GitLab 地址</span>
+              <span>服务地址</span>
               <input
                 value={form.gitlabUrl}
-                placeholder="https://gitlab.example.com"
+                placeholder="https://example.com"
                 onChange={(event) => update('gitlabUrl', event.target.value)}
               />
-              <small>填写服务根地址，不包含 /api/v4。</small>
+              <small>填写同步服务的访问地址即可。</small>
             </label>
             <label className="field">
-              <span>项目 ID</span>
+              <span>项目</span>
               <input
                 value={form.projectId}
-                placeholder="123 或 group/project"
+                placeholder="编号或路径"
                 onChange={(event) => update('projectId', event.target.value)}
               />
             </label>
@@ -308,12 +274,13 @@ export function SettingsPage({
                 value={form.branch}
                 onChange={(event) => update('branch', event.target.value)}
               />
+              <small>同步的文件会提交到这个分支。</small>
             </label>
           </div>
 
           <div className="field-grid three more-grid">
             <label className="field">
-              <span>API 超时（秒）</span>
+              <span>连接超时（秒）</span>
               <input
                 type="number"
                 min={1}
@@ -335,7 +302,7 @@ export function SettingsPage({
               />
             </label>
             <label className="field">
-              <span>最大上传（MiB）</span>
+              <span>上传上限（MB）</span>
               <input
                 type="number"
                 min={1}
@@ -353,7 +320,7 @@ export function SettingsPage({
 
           <div className="field-grid more-grid">
             <div className="field wide">
-              <span>优先读取器</span>
+              <span>默认读取方式</span>
               <div className="reader-choice">
                 <label>
                   <input
@@ -362,7 +329,7 @@ export function SettingsPage({
                     checked={form.preferredReader === 'node'}
                     onChange={() => update('preferredReader', 'node')}
                   />
-                  Node
+                  Node.js
                 </label>
                 <label>
                   <input
@@ -375,18 +342,18 @@ export function SettingsPage({
                 </label>
               </div>
               <small>
-                优先使用选中的读取器；只有它的自动探测完全找不到时，才会回退到另一个。
-                显式填写的路径不可执行会直接失败。
+                仅在文件被 DSM
+                加密、应用无法直接读取时使用。一般保持默认即可，应用会自动查找可用的程序。
               </small>
             </div>
 
             {form.preferredReader === 'node' ? (
               <label className="field wide">
-                <span>DSM 读取 Node 路径</span>
+                <span>Node.js 路径</span>
                 <div className="input-action">
                   <input
                     value={form.nodeReaderPath ?? ''}
-                    placeholder="留空自动探测，例如 C:\Program Files\nodejs\node.exe"
+                    placeholder="留空自动查找，例如 C:\Program Files\nodejs\node.exe"
                     onChange={(event) =>
                       update('nodeReaderPath', event.target.value || null)
                     }
@@ -400,17 +367,17 @@ export function SettingsPage({
                   </button>
                 </div>
                 <small>
-                  填写 DSM 进程白名单中的 node
-                  绝对路径。留空时自动探测，找不到则尝试另一个读取器；显式填写但不可执行会直接失败。
+                  一般留空。只有在自动查找失败时，才填写 DSM 允许读取文件的
+                  Node.js 完整路径。
                 </small>
               </label>
             ) : (
               <label className="field wide">
-                <span>DSM 读取 Python 路径</span>
+                <span>Python 路径</span>
                 <div className="input-action">
                   <input
                     value={form.pythonReaderPath ?? ''}
-                    placeholder="留空自动探测，例如 C:\Program Files\Python312\python.exe"
+                    placeholder="留空自动查找，例如 C:\Program Files\Python312\python.exe"
                     onChange={(event) =>
                       update('pythonReaderPath', event.target.value || null)
                     }
@@ -424,9 +391,8 @@ export function SettingsPage({
                   </button>
                 </div>
                 <small>
-                  填写 DSM 进程白名单中的 python 绝对路径，不建议使用 py.exe 或
-                  Microsoft Store
-                  别名。留空时自动探测，找不到则尝试另一个读取器；显式填写但不可执行会直接失败。
+                  一般留空。只有在自动查找失败时，才填写 DSM 允许读取文件的
+                  Python 完整路径。
                 </small>
               </label>
             )}
@@ -440,8 +406,8 @@ export function SettingsPage({
                 }
               />
               <span>
-                <strong>成功后保留 ZIP</strong>
-                <small>默认在解压成功后删除归档文件。</small>
+                <strong>同步后保留压缩包</strong>
+                <small>默认在解压完成后删除下载的压缩包。</small>
               </span>
             </label>
           </div>
@@ -457,37 +423,39 @@ export function SettingsPage({
                       : 'probe-verdict different'
                   }
                 >
-                  {probeResult.identical ? '内容一致' : '内容不同'}
+                  {probeResult.identical ? '结果相同' : '结果不同'}
                 </span>
               </div>
               <dl>
                 <div>
-                  <dt>优先读取器</dt>
+                  <dt>默认方式</dt>
                   <dd>
                     {READER_LABELS[probeResult.preferredReader]}
-                    {probeResult.fallbackUsed ? '（自动探测失败，已回退）' : ''}
+                    {probeResult.fallbackUsed
+                      ? '（自动查找失败，已改用另一种）'
+                      : ''}
                   </dd>
                 </div>
                 <div>
-                  <dt>实际读取器</dt>
+                  <dt>实际使用</dt>
                   <dd className="reader-path">
                     {READER_LABELS[probeResult.usedReader]}{' '}
                     {probeResult.readerVersion} · {probeResult.readerPath}
                   </dd>
                 </div>
                 <div>
-                  <dt>解析来源</dt>
+                  <dt>来源</dt>
                   <dd>{READER_SOURCE_LABELS[probeResult.readerSource]}</dd>
                 </div>
                 <div>
-                  <dt>主进程读取</dt>
+                  <dt>直接读取</dt>
                   <dd>
                     {formatBytes(probeResult.directSize)} ·{' '}
                     {probeResult.directHead}
                   </dd>
                 </div>
                 <div>
-                  <dt>{READER_LABELS[probeResult.usedReader]} 读取</dt>
+                  <dt>经读取程序</dt>
                   <dd>
                     {formatBytes(probeResult.readerSize)} ·{' '}
                     {probeResult.readerHead}
@@ -496,8 +464,8 @@ export function SettingsPage({
               </dl>
               <p>
                 {probeResult.identical
-                  ? '两者一致：文件可能未受 DSM 管控，或该读取器未被 DSM 解密。'
-                  : `两者不同：${READER_LABELS[probeResult.usedReader]} 读取到了不同内容，通常说明已解密；请确认文件可正常打开。`}
+                  ? '两次读取结果相同：文件可能未加密，或读取程序不在 DSM 允许列表中。'
+                  : '两次读取结果不同：通常说明已成功读取解密后的内容，请确认文件可以正常打开。'}
               </p>
             </div>
           )}
@@ -510,7 +478,7 @@ export function SettingsPage({
           className="primary-button"
           disabled={saving || (locked && !token.trim())}
         >
-          {saving ? '保存中…' : locked ? '保存 Token' : '保存设置'}
+          {saving ? '保存中…' : locked ? '保存令牌' : '保存设置'}
         </button>
         <button
           type="button"
@@ -522,9 +490,9 @@ export function SettingsPage({
         </button>
         <span className="helper-text settings-lock-hint">
           {locked
-            ? '任务运行期间仅可更新 Token，配置字段已锁定。'
+            ? '任务运行期间仅可更新访问令牌，其他设置暂时锁定。'
             : dirty
-              ? '测试连接使用已保存的设置，请先保存当前修改。'
+              ? '请先保存修改，再测试连接。'
               : ''}
         </span>
       </div>
@@ -537,9 +505,9 @@ export function SettingsPage({
 }
 
 function tokenSourceLabel(status: BootstrapData['token']): string {
-  if (status.source === 'preset') return '安装包预置';
+  if (status.source === 'preset') return '随安装包预置';
   if (status.source === 'user') {
-    return status.configured ? '用户配置' : '用户已清除';
+    return status.configured ? '手动设置' : '已清除';
   }
-  return '未配置';
+  return '未设置';
 }

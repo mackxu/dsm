@@ -74,7 +74,7 @@ describe('configuration', () => {
         ...DEFAULT_CONFIG,
         preferredReader: 'auto',
       }),
-    ).toThrow(/优先读取器/);
+    ).toThrow(/默认读取方式/);
   });
 
   it('rejects API URLs and unsupported protocols', () => {

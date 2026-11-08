@@ -98,7 +98,7 @@ export class WhitelistedFileReader {
     if (fallbackUsed) {
       await this.log(
         'INFO',
-        `优先读取器 ${readerLabel(selection.preferredReader)} 不可用，使用 ${readerLabel(reader.kind)}`,
+        `默认读取方式 ${readerLabel(selection.preferredReader)} 不可用，已改用 ${readerLabel(reader.kind)}`,
         {
           readerKind: reader.kind,
           readerPath: reader.command,
@@ -159,7 +159,7 @@ export class WhitelistedFileReader {
       throw new DsmError('FILE_INVALID', '不能测试空文件', 'CHECK');
     }
     if (stat.size > MAX_PROBE_BYTES) {
-      throw new DsmError('FILE_TOO_LARGE', '测试文件不能超过 100 MiB', 'CHECK');
+      throw new DsmError('FILE_TOO_LARGE', '测试文件不能超过 100 MB', 'CHECK');
     }
 
     const { reader, fallbackUsed } = await resolveReaderChain(
