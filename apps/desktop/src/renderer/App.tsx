@@ -4,6 +4,7 @@ import type { TaskSnapshot, TokenStatus } from '@dsm/core';
 import type { BootstrapData } from '../shared.ts';
 import { errorMessage, unwrap } from './api.ts';
 import { LogsPage } from './LogsPage.tsx';
+import { ReaderDependencyDialog } from './ReaderDependencyDialog.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
 import { TaskDialog } from './TaskDialog.tsx';
 import { UploadPage } from './UploadPage.tsx';
@@ -35,6 +36,7 @@ export function App(): React.JSX.Element {
   const [recentTasks, setRecentTasks] = useState<TaskSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [readerFailure, setReaderFailure] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const workspaceRef = useRef<HTMLElement>(null);
 
@@ -56,9 +58,13 @@ export function App(): React.JSX.Element {
     const unsubscribe = window.dsm.onTaskUpdate((snapshot) => {
       if (active) applyTask(snapshot);
     });
+    const unsubscribeReaderCheck = window.dsm.onReaderCheckFailure(() => {
+      if (active) setReaderFailure(true);
+    });
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeReaderCheck();
     };
   }, []);
 
@@ -230,6 +236,14 @@ export function App(): React.JSX.Element {
           task={task}
           onTask={applyTask}
           onOpenSettings={() => setPage('settings')}
+          onNotice={setNotice}
+        />
+      )}
+
+      {readerFailure && (
+        <ReaderDependencyDialog
+          onDismiss={() => setReaderFailure(false)}
+          onResolved={() => setReaderFailure(false)}
           onNotice={setNotice}
         />
       )}

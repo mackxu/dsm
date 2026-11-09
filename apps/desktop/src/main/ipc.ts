@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
@@ -25,11 +25,14 @@ import type {
   BootstrapData,
   ConnectionResult,
   LocalFileInfo,
+  ReaderCheckResult,
   ReaderProbeResult,
   SaveSettingsResult,
 } from '../shared.ts';
+import { READER_INSTALL_PAGE_URL } from '../shared.ts';
 import type { ConfigStore } from './config-store.ts';
 import type { Logger } from './logger.ts';
+import { readerLabel } from './reader-chain.ts';
 import type { TaskHistoryStore } from './task-history-store.ts';
 import type { TokenStore } from './token-store.ts';
 import type { WhitelistedFileReader } from './whitelisted-file-reader.ts';
@@ -167,6 +170,43 @@ export function setupIpc(services: IpcServices): void {
     return services.fileReader.probe(result.filePaths[0], selection);
   });
 
+  handle<ReaderCheckResult>('dsm:recheck-reader', async () => {
+    const { reader, fallbackUsed } =
+      await services.fileReader.checkAvailability();
+    await services.logger.log(
+      'INFO',
+      'APP',
+      `读取器复检通过：${readerLabel(reader.kind)}`,
+      {
+        details: {
+          readerKind: reader.kind,
+          readerPath: reader.command,
+          readerVersion: reader.version,
+          readerSource: reader.source,
+          fallbackUsed,
+        },
+      },
+    );
+    return {
+      readerKind: reader.kind,
+      readerPath: reader.command,
+      readerVersion: reader.version,
+      readerSource: reader.source,
+      fallbackUsed,
+    };
+  });
+
+  handle('dsm:open-reader-install-page', async () => {
+    const url = new URL(READER_INSTALL_PAGE_URL);
+    if (url.protocol !== 'https:') {
+      throw new DsmError('INVALID_REQUEST', '安装页面地址不安全', 'CHECK');
+    }
+    await shell.openExternal(READER_INSTALL_PAGE_URL);
+    await services.logger.log('INFO', 'APP', '已打开读取器安装页面', {
+      details: { url: READER_INSTALL_PAGE_URL },
+    });
+  });
+
   handle('dsm:clear-token', async () => {
     const status = await services.tokenStore.clear();
     await services.logger.log('INFO', 'CONFIG', '用户清除了访问令牌');
@@ -178,12 +218,10 @@ export function setupIpc(services: IpcServices): void {
     return services.taskController.start(filePath);
   });
 
-  handle(
-    'dsm:confirm-task',
-    async (_event, taskId, allowOverwrite) =>
-      services.taskController.confirm(requireString(taskId, '任务 ID'), {
-        allowOverwrite: allowOverwrite === true,
-      }),
+  handle('dsm:confirm-task', async (_event, taskId, allowOverwrite) =>
+    services.taskController.confirm(requireString(taskId, '任务 ID'), {
+      allowOverwrite: allowOverwrite === true,
+    }),
   );
 
   handle('dsm:recover-task', async (_event, taskId, action) =>

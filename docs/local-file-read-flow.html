@@ -1116,7 +1116,8 @@
             Node：系统 <code>PATH</code>、Windows 的 Program Files /
             <code>LOCALAPPDATA</code> / <code>APPDATA</code>、macOS 的 Homebrew 与
             <code>~/.nvm/versions/node/*/bin</code>。Python：<code>PATH</code>、Homebrew、
-            framework、Command Line Tools、pyenv versions 与常见 conda 目录；自动探测排除
+            framework、Command Line Tools、pyenv versions 与常见 conda 目录；命令名优先
+            <code>python</code>，其次 <code>python3</code>；自动探测排除
             Windows Store 别名和 macOS 的 <code>/usr/bin/python3</code> 桩。
           </div>
         </li>

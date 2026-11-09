@@ -98,7 +98,7 @@ export class ReaderExecutableResolver implements ReaderResolver {
     if (!resolved) {
       throw new DsmError(
         'READER_UNAVAILABLE',
-        `无法执行 ${this.spec.label}：${command}。显式配置失败不会回退。`,
+        `前置依赖不可执行：${command}。显式配置失败不会回退。`,
         'CHECK',
       );
     }

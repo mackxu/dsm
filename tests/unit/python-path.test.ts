@@ -91,10 +91,29 @@ describe('pythonCandidates', () => {
     );
     expect(result).toContain(path.join(tools, 'python.exe'));
     expect(result).not.toContain(path.join(tools, 'py.exe'));
+    expect(result.indexOf(path.join(tools, 'python.exe'))).toBeLessThan(
+      result.indexOf(path.join(tools, 'python3.exe')),
+    );
     expect(
       result.some((value) => value.toLowerCase().includes('windowsapps')),
     ).toBe(false);
     expect(result.indexOf(python312)).toBeLessThan(result.indexOf(python310));
+  });
+
+  it('prefers python over python3 across all PATH directories', async () => {
+    const root = await makeTemporaryDirectory();
+    const first = path.join(root, 'first');
+    const second = path.join(root, 'second');
+
+    const result = await pythonCandidates({
+      platform: 'linux',
+      home: path.join(root, 'home'),
+      env: { PATH: `${first}:${second}` },
+    });
+
+    expect(result.indexOf(path.join(second, 'python'))).toBeLessThan(
+      result.indexOf(path.join(first, 'python3')),
+    );
   });
 
   it('excludes the macOS /usr/bin stub and pyenv shims', async () => {
@@ -112,14 +131,26 @@ describe('pythonCandidates', () => {
       },
     });
 
+    expect(result).toContain('/opt/homebrew/bin/python');
     expect(result).toContain('/opt/homebrew/bin/python3');
+    expect(result.indexOf('/opt/homebrew/bin/python')).toBeLessThan(
+      result.indexOf('/opt/homebrew/bin/python3'),
+    );
     expect(result).toContain(
       '/Library/Developer/CommandLineTools/usr/bin/python3',
     );
     expect(result).not.toContain('/usr/bin/python3');
     expect(result).not.toContain(path.join(shims, 'python3'));
     expect(result).toContain(
+      path.join(pyenvVersions, '3.12.0', 'bin', 'python'),
+    );
+    expect(result).toContain(
       path.join(pyenvVersions, '3.12.0', 'bin', 'python3'),
+    );
+    expect(
+      result.indexOf(path.join(pyenvVersions, '3.12.0', 'bin', 'python')),
+    ).toBeLessThan(
+      result.indexOf(path.join(pyenvVersions, '3.12.0', 'bin', 'python3')),
     );
     expect(result).toContain(
       path.join(pyenvVersions, '3.9.18', 'bin', 'python3'),

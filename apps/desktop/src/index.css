@@ -1297,6 +1297,43 @@ code {
   border-top: 4px solid var(--warning);
 }
 
+/* Reader dependency dialog */
+.dependency-dialog h2 {
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.dependency-dialog .task-message + .task-message {
+  margin-top: 8px;
+}
+
+.dependency-dialog .dependency-link-line {
+  margin-top: 14px;
+}
+
+.dependency-dialog .dependency-link {
+  color: var(--accent);
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  user-select: text;
+}
+
+.dependency-dialog .dependency-error {
+  max-height: 92px;
+  margin: 13px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  color: #8a5a3a;
+  background: #f7efe7;
+  border-radius: 10px;
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 /* Boot */
 .error-text {
   color: var(--danger);

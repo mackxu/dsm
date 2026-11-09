@@ -22,6 +22,10 @@ import {
   ElectronPlatform,
 } from './main/platform/electron-platform.ts';
 import { PresetStore } from './main/preset-store.ts';
+import {
+  createStartupReaderCheck,
+  type StartupReaderCheckHandle,
+} from './main/startup-reader-check.ts';
 import { TaskHistoryStore } from './main/task-history-store.ts';
 import { TokenStore } from './main/token-store.ts';
 import {
@@ -33,8 +37,10 @@ import { WhitelistedFileReader } from './main/whitelisted-file-reader.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let taskController: TaskController | null = null;
+let startupReaderCheck: StartupReaderCheckHandle | null = null;
 let forceClose = false;
 let closePromptOpen = false;
+let isQuitting = false;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -273,6 +279,17 @@ app
       platformLabel: platformLabel(),
     });
 
+    if (hasSingleInstanceLock) {
+      startupReaderCheck = createStartupReaderCheck({
+        checkAvailability: () => fileReader.checkAvailability(),
+        isWindowAvailable: () => !isQuitting && getLiveMainWindow() !== null,
+        notifyFailure: () => sendReaderCheckFailure(),
+        log: (level, stage, message, options) =>
+          logger.log(level, stage, message, options),
+      });
+      startupReaderCheck.start();
+    }
+
     const config = await configStore.load();
     const saveDirectory =
       config.saveDirectory ?? path.join(paths.documents, 'DSM');
@@ -295,8 +312,25 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
+  startupReaderCheck?.cancel();
   if (!isTaskActive()) forceClose = true;
 });
+
+function sendReaderCheckFailure(): void {
+  const window = getLiveMainWindow();
+  if (!window || window.isDestroyed()) return;
+  const send = (): void => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('dsm:reader-check-failed');
+    }
+  };
+  if (window.webContents.isLoadingMainFrame()) {
+    window.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+}
 
 async function cleanStaleTemporaryItems(
   rootDirectory: string,

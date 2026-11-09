@@ -19,7 +19,11 @@ import {
   type ReaderResolver,
   type ResolvedReader,
 } from './reader-executable.ts';
-import { readerLabel, resolveReaderChain } from './reader-chain.ts';
+import {
+  readerLabel,
+  resolveReaderChain,
+  type ReaderChainResult,
+} from './reader-chain.ts';
 
 const DEFAULT_READ_TIMEOUT_MS = 120_000;
 const MAX_STDERR_BYTES = 8 * 1024;
@@ -138,6 +142,24 @@ export class WhitelistedFileReader {
       },
     );
     return content;
+  }
+
+  /**
+   * 启动/复检时探测整条读取器链，只验证解释器可执行，不读取文件。
+   *
+   * 探测前清空自动探测缓存；失败后再清空一次，避免把“本次不可用”
+   * 缓存成后续 read() 的永久结果。用户安装解释器后，无需重启应用
+   * 即可在重新检测或下一次任务中重新探测成功。
+   */
+  async checkAvailability(): Promise<ReaderChainResult> {
+    this.resetAutoDetection();
+    try {
+      const selection = await this.options.getReaderSelection();
+      return await resolveReaderChain(selection, this.resolvers);
+    } catch (error) {
+      this.resetAutoDetection();
+      throw error;
+    }
   }
 
   /**

@@ -56,12 +56,33 @@ export async function pythonCandidates(
     home: os.homedir(),
   },
 ): Promise<string[]> {
+  const isWindows = context.platform === 'win32';
+  const join = path.join;
+  // DSM 白名单可能只匹配 python（或 python.exe），因此先尝试所有目录下的
+  // python 候选，只有都不可用时才用 python3 兜底。
+  const commandNames = isWindows
+    ? ['python.exe', 'python3.exe']
+    : ['python', 'python3'];
+  const directories = await pythonDirectories(context);
+
   const result: string[] = [];
+  for (const name of commandNames) {
+    for (const directory of directories) {
+      result.push(join(directory, name));
+    }
+  }
+  return deduplicate(result, isWindows);
+}
+
+async function pythonDirectories(
+  context: PythonCandidateContext,
+): Promise<string[]> {
   const isWindows = context.platform === 'win32';
   const isMac = context.platform === 'darwin';
   const join = path.join;
   const delimiter = isWindows ? ';' : ':';
   const localAppData = context.env.LOCALAPPDATA;
+  const directories: string[] = [];
 
   for (const rawDirectory of (context.env.PATH ?? '').split(delimiter)) {
     const directory = rawDirectory.trim().replace(/^"(.*)"$/, '$1');
@@ -69,22 +90,17 @@ export async function pythonCandidates(
     if (isWindows && isWindowsAppsPath(directory)) continue;
     if (isMac && directory === '/usr/bin') continue;
     if (isMac && directory === join(context.home, '.pyenv', 'shims')) continue;
-    for (const name of isWindows
-      ? ['python.exe', 'python3.exe']
-      : ['python3']) {
-      result.push(join(directory, name));
-    }
+    directories.push(directory);
   }
 
   if (isWindows) {
     if (localAppData) {
-      const programsDirectory = join(localAppData, 'Programs', 'Python');
-      result.push(
+      directories.push(
         ...(await versionedDirectories(
-          programsDirectory,
+          join(localAppData, 'Programs', 'Python'),
           (name) => /^Python3\d+$/.test(name),
           pythonDirectoryScore,
-          (base, name) => join(base, name, 'python.exe'),
+          (base, name) => join(base, name),
         )),
       );
     }
@@ -92,12 +108,12 @@ export async function pythonCandidates(
     for (const variable of ['ProgramFiles', 'ProgramFiles(x86)'] as const) {
       const base = context.env[variable];
       if (!base) continue;
-      result.push(
+      directories.push(
         ...(await versionedDirectories(
           base,
           (name) => /^Python3\d+$/.test(name),
           pythonDirectoryScore,
-          (directory, name) => join(directory, name, 'python.exe'),
+          (directory, name) => join(directory, name),
         )),
       );
     }
@@ -105,46 +121,43 @@ export async function pythonCandidates(
     for (const conda of ['miniconda3', 'anaconda3']) {
       const userProfile = context.env.USERPROFILE;
       if (userProfile) {
-        result.push(join(userProfile, conda, 'python.exe'));
+        directories.push(join(userProfile, conda));
       }
       if (localAppData) {
-        result.push(join(localAppData, conda, 'python.exe'));
+        directories.push(join(localAppData, conda));
       }
     }
   } else if (isMac) {
-    result.push(
-      '/opt/homebrew/bin/python3',
-      '/usr/local/bin/python3',
-      '/Library/Developer/CommandLineTools/usr/bin/python3',
+    directories.push(
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/Library/Developer/CommandLineTools/usr/bin',
     );
-    result.push(
-      ...(await versionedDirectories(
-        '/Library/Frameworks/Python.framework/Versions',
-        (name) => /^3\.\d+/.test(name),
-        numericVersionScore,
-        (base, name) => join(base, name, 'bin', 'python3'),
-      )),
-    );
-    result.push(
-      ...(await versionedDirectories(
-        join(context.home, '.pyenv', 'versions'),
-        (name) => /^3\.\d+/.test(name),
-        numericVersionScore,
-        (base, name) => join(base, name, 'bin', 'python3'),
-      )),
-    );
+    for (const base of [
+      '/Library/Frameworks/Python.framework/Versions',
+      join(context.home, '.pyenv', 'versions'),
+    ]) {
+      directories.push(
+        ...(await versionedDirectories(
+          base,
+          (name) => /^3\.\d+/.test(name),
+          numericVersionScore,
+          (directory, name) => join(directory, name, 'bin'),
+        )),
+      );
+    }
   } else {
-    result.push('/usr/bin/python3', '/usr/local/bin/python3');
+    directories.push('/usr/bin', '/usr/local/bin');
   }
 
-  return deduplicate(result, isWindows);
+  return directories;
 }
 
 async function versionedDirectories(
   base: string,
   include: (name: string) => boolean,
   score: (name: string) => number,
-  toCommand: (base: string, name: string) => string,
+  toDirectory: (base: string, name: string) => string,
 ): Promise<string[]> {
   const entries = await fs
     .readdir(base, { withFileTypes: true })
@@ -154,7 +167,7 @@ async function versionedDirectories(
     .sort(
       (a, b) => score(b.name) - score(a.name) || b.name.localeCompare(a.name),
     )
-    .map((entry) => toCommand(base, entry.name));
+    .map((entry) => toDirectory(base, entry.name));
 }
 
 function pythonDirectoryScore(name: string): number {

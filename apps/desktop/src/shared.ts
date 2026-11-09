@@ -11,6 +11,9 @@ import type {
 } from '@dsm/core';
 import type { LogEntry, LogPage } from './main/logger';
 
+export const READER_INSTALL_PAGE_URL =
+  'https://nas.pxsemic.local:5001/sharing/6592pf9xj';
+
 export interface ApiError {
   code: DsmErrorCode;
   message: string;
@@ -72,6 +75,14 @@ export interface ReaderProbeResult {
   identical: boolean;
 }
 
+export interface ReaderCheckResult {
+  readerKind: ReaderKind;
+  readerPath: string;
+  readerVersion: string;
+  readerSource: ReaderSource;
+  fallbackUsed: boolean;
+}
+
 export interface DesktopApi {
   bootstrap(): Promise<ApiResult<BootstrapData>>;
   chooseFile(): Promise<ApiResult<LocalFileInfo | null>>;
@@ -86,6 +97,9 @@ export interface DesktopApi {
   testFileReader(
     selection: ReaderSelection,
   ): Promise<ApiResult<ReaderProbeResult>>;
+  recheckReader(): Promise<ApiResult<ReaderCheckResult>>;
+  openReaderInstallPage(): Promise<ApiResult<void>>;
+  onReaderCheckFailure(callback: () => void): () => void;
   clearToken(): Promise<ApiResult<TokenStatus>>;
   startTask(filePath: string): Promise<ApiResult<TaskSnapshot>>;
   confirmTask(

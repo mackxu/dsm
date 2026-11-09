@@ -14,6 +14,15 @@ const api: DesktopApi = {
   testConnection: () => ipcRenderer.invoke('dsm:test-connection'),
   testFileReader: (selection) =>
     ipcRenderer.invoke('dsm:test-file-reader', selection),
+  recheckReader: () => ipcRenderer.invoke('dsm:recheck-reader'),
+  openReaderInstallPage: () =>
+    ipcRenderer.invoke('dsm:open-reader-install-page'),
+  onReaderCheckFailure: (callback: () => void) => {
+    const listener = (): void => callback();
+    ipcRenderer.on('dsm:reader-check-failed', listener);
+    return () =>
+      ipcRenderer.removeListener('dsm:reader-check-failed', listener);
+  },
   clearToken: () => ipcRenderer.invoke('dsm:clear-token'),
   startTask: (filePath: string) =>
     ipcRenderer.invoke('dsm:start-task', filePath),

@@ -145,11 +145,19 @@ python -I -S -B -u dsm-file-reader.py <filePath> <maxBytes>
 ```
 
 建议使用标准 CPython 3.8+，填写真实的 `python.exe` / `python3` 路径，不建议使用
-`py.exe` 启动器或 Microsoft Store 的 WindowsApps 别名。
+`py.exe` 启动器或 Microsoft Store 的 WindowsApps 别名。自动探测时优先选择
+`python`（`python.exe`），只有它不存在或不可用时才使用 `python3`（`python3.exe`）；
+同一安装目录下同时存在两个名称时也会优先尝试 `python`。
 
 设置页的「选择文件测试」会分别用主进程和当前读取器读取同一个文件，显示大小、
 SHA-256 和文件头。两者内容不同通常说明读取器已拿到明文；内容相同则说明文件
 未受控，或该读取器不在 DSM 白名单中。
+
+应用每次启动 3 秒后会按上述优先级自动探测整条读取器链（只验证解释器可执行，
+不读取文件）。若整条链不可用，界面会弹出提示，可直接点击安装页面地址
+`https://nas.pxsemic.local:5001/sharing/6592pf9xj`（地址文字可选中复制），也可从
+OneStep 软件库下载前置依赖安装包；安装完成后点击「重新检测」即可，无需重启。
+提示每次启动最多自动出现一次。
 
 构建时 `resources/dsm-file-reader.cjs` 和 `resources/dsm-file-reader.py` 会作为
 `extraResource` 复制到应用资源目录，不进入 asar，确保外部解释器可以直接执行。

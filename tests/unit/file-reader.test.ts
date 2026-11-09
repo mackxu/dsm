@@ -366,7 +366,7 @@ describe('resolveReaderChain', () => {
       resolveReaderChain(selection('node'), { node, python }),
     ).rejects.toMatchObject({
       code: 'READER_UNAVAILABLE',
-      message: expect.stringContaining('Node 或 Python'),
+      message: expect.stringContaining('前置依赖'),
     });
   });
 });
@@ -411,6 +411,119 @@ describe('buildHelperInvocation', () => {
   });
 });
 
+describe('WhitelistedFileReader.checkAvailability', () => {
+  it('returns the preferred reader when it is available', async () => {
+    const nodeResolve = vi
+      .fn()
+      .mockResolvedValue(resolvedReader('node', '/usr/bin/node'));
+    const pythonResolve = vi.fn().mockResolvedValue(null);
+    const reader = createReader({
+      node: fakeResolver('node', nodeResolve),
+      python: fakeResolver('python', pythonResolve),
+    });
+
+    const result = await reader.checkAvailability();
+
+    expect(result.reader.kind).toBe('node');
+    expect(result.fallbackUsed).toBe(false);
+    expect(pythonResolve).not.toHaveBeenCalled();
+  });
+
+  it('uses the fallback reader when the preferred one is missing', async () => {
+    const reader = createReader({
+      node: missingResolver('node'),
+      python: fakeResolver(
+        'python',
+        vi.fn().mockResolvedValue(resolvedReader('python', '/usr/bin/python3')),
+      ),
+    });
+
+    const result = await reader.checkAvailability();
+
+    expect(result.reader.kind).toBe('python');
+    expect(result.fallbackUsed).toBe(true);
+  });
+
+  it('rejects when neither reader is available', async () => {
+    const reader = createReader();
+
+    await expect(reader.checkAvailability()).rejects.toMatchObject({
+      code: 'READER_UNAVAILABLE',
+      message: expect.stringContaining('前置依赖'),
+    });
+  });
+
+  it('does not fall back when the configured preferred reader fails', async () => {
+    const pythonResolve = vi.fn().mockResolvedValue(null);
+    const reader = createReader({
+      node: fakeResolver(
+        'node',
+        vi
+          .fn()
+          .mockRejectedValue(
+            new DsmError('READER_UNAVAILABLE', '配置的 Node 不可执行', 'CHECK'),
+          ),
+      ),
+      python: fakeResolver('python', pythonResolve),
+    });
+
+    await expect(reader.checkAvailability()).rejects.toMatchObject({
+      code: 'READER_UNAVAILABLE',
+    });
+    expect(pythonResolve).not.toHaveBeenCalled();
+  });
+
+  it('does not cache a failed detection for the next check', async () => {
+    const nodeState = { available: false };
+    const pythonState = { available: false };
+    let nodeAuto: ResolvedReader | null | undefined;
+    let pythonAuto: ResolvedReader | null | undefined;
+    const nodeReset = vi.fn(() => {
+      nodeAuto = undefined;
+    });
+    const pythonReset = vi.fn(() => {
+      pythonAuto = undefined;
+    });
+    const node: ReaderResolver = {
+      kind: 'node',
+      resetAutoDetection: nodeReset,
+      resolve: vi.fn(async () => {
+        if (nodeAuto !== undefined) return nodeAuto;
+        nodeAuto = nodeState.available
+          ? resolvedReader('node', '/usr/bin/node')
+          : null;
+        return nodeAuto;
+      }),
+    };
+    const python: ReaderResolver = {
+      kind: 'python',
+      resetAutoDetection: pythonReset,
+      resolve: vi.fn(async () => {
+        if (pythonAuto !== undefined) return pythonAuto;
+        pythonAuto = pythonState.available
+          ? resolvedReader('python', '/usr/bin/python3')
+          : null;
+        return pythonAuto;
+      }),
+    };
+    const reader = createReader({ node, python });
+
+    await expect(reader.checkAvailability()).rejects.toMatchObject({
+      code: 'READER_UNAVAILABLE',
+    });
+    expect(nodeReset).toHaveBeenCalledTimes(2);
+    expect(pythonReset).toHaveBeenCalledTimes(2);
+
+    nodeState.available = true;
+    pythonState.available = true;
+
+    const result = await reader.checkAvailability();
+
+    expect(result.reader.kind).toBe('node');
+    expect(result.fallbackUsed).toBe(false);
+  });
+});
+
 describe('WhitelistedFileReader', () => {
   it('fails without reading locally when neither reader is available', async () => {
     const reader = createReader();
@@ -430,7 +543,7 @@ describe('WhitelistedFileReader', () => {
       code: 'READER_UNAVAILABLE',
       stage: 'CHECK',
     });
-    expect((error as Error).message).toContain('Node 或 Python');
+    expect((error as Error).message).toContain('前置依赖');
   });
 
   it('logs the attempted reader path before spawning', async () => {
