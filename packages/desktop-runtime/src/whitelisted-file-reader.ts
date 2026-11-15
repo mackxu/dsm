@@ -2,16 +2,18 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { Transform } from 'node:stream';
 
 import {
   DsmError,
   type FileContentReadOptions,
+  type FileReadStream,
   type ReaderKind,
+  type ReaderProbeResult,
   type ReaderSelection,
 } from '@dsm/core';
 
-import type { ReaderProbeResult } from '../shared.ts';
-import type { Logger } from './logger.ts';
+import type { LogLevel, Logger } from './logger.ts';
 import { NodeExecutableResolver } from './node-path.ts';
 import { PythonExecutableResolver } from './python-path.ts';
 import {
@@ -127,7 +129,31 @@ export class WhitelistedFileReader {
         fallbackUsed,
       },
     );
-    const content = await this.spawnRead(reader, filePath, options.maxBytes);
+    let content: Buffer;
+    try {
+      content = await this.spawnRead(reader, filePath, options.maxBytes);
+    } catch (error) {
+      await this.log(
+        'ERROR',
+        `通过外部 ${readerLabel(reader.kind)} 读取文件失败：${errorMessage(error)}`,
+        {
+          readerKind: reader.kind,
+          readerPath: reader.command,
+          readerVersion: reader.version,
+          readerSource: reader.source,
+          preferredReader: selection.preferredReader,
+          fallbackUsed,
+          ...(error instanceof DsmError
+            ? {
+                code: error.code,
+                stage: error.stage,
+                recoverable: error.recoverable,
+              }
+            : {}),
+        },
+      );
+      throw error;
+    }
     await this.log(
       'INFO',
       `已通过外部 ${readerLabel(reader.kind)} 读取待上传文件`,
@@ -142,6 +168,57 @@ export class WhitelistedFileReader {
       },
     );
     return content;
+  }
+
+  /**
+   * 流式读取：helper stdout 经限流 Transform 交给管道消费端。
+   *
+   * 读取语义、显式配置不回退规则与 read() 完全一致；调用方必须消费
+   * 返回的 stream，并在失败时调用 abort() 结束 helper 进程。
+   */
+  async openStream(
+    filePath: string,
+    options: { maxBytes: number; timeoutMs?: number },
+  ): Promise<FileReadStream> {
+    const selection = await this.options.getReaderSelection();
+    const { reader, fallbackUsed } = await resolveReaderChain(
+      selection,
+      this.resolvers,
+    );
+
+    if (fallbackUsed) {
+      await this.log(
+        'INFO',
+        `默认读取方式 ${readerLabel(selection.preferredReader)} 不可用，已改用 ${readerLabel(reader.kind)}`,
+        {
+          readerKind: reader.kind,
+          readerPath: reader.command,
+          readerVersion: reader.version,
+          readerSource: reader.source,
+          preferredReader: selection.preferredReader,
+        },
+      );
+    }
+
+    await this.ensureHelper(reader.kind);
+    await this.log(
+      'INFO',
+      `开始通过外部 ${readerLabel(reader.kind)} 流式读取文件`,
+      {
+        readerKind: reader.kind,
+        readerPath: reader.command,
+        readerVersion: reader.version,
+        readerSource: reader.source,
+        preferredReader: selection.preferredReader,
+        fallbackUsed,
+      },
+    );
+    return this.spawnStream(
+      reader,
+      filePath,
+      options.maxBytes,
+      options.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_READ_TIMEOUT_MS,
+    );
   }
 
   /**
@@ -344,8 +421,183 @@ export class WhitelistedFileReader {
     });
   }
 
+  private spawnStream(
+    reader: ResolvedReader,
+    filePath: string,
+    maxBytes: number,
+    timeoutMs: number,
+  ): FileReadStream {
+    const label = readerLabel(reader.kind);
+    const startedAt = Date.now();
+    const invocation = buildHelperInvocation(
+      reader,
+      {
+        node: this.options.nodeHelperPath,
+        python: this.options.pythonHelperPath,
+      },
+      filePath,
+      maxBytes,
+    );
+    const child = spawn(invocation.command, invocation.args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      shell: false,
+      env: minimalEnvironment(),
+    });
+
+    let total = 0;
+    let stderr = '';
+    let exitCode: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
+    let settled = false;
+    let aborted = false;
+    let timer: NodeJS.Timeout | null = null;
+
+    let resolveDone!: (bytes: number) => void;
+    let rejectDone!: (error: Error) => void;
+    const completed = new Promise<number>((resolve, reject) => {
+      resolveDone = resolve;
+      rejectDone = reject;
+    });
+    // 调用方可能只消费 stream 而未 await completed；内部兜底避免
+    // 未处理的 rejection 影响进程。
+    completed.catch(() => {});
+
+    const finish = (error: Error | null): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (error) {
+        void this.log('ERROR', `外部 ${label} 流式读取失败：${error.message}`, {
+          ...(error instanceof DsmError
+            ? {
+                code: error.code,
+                stage: error.stage,
+                recoverable: error.recoverable,
+              }
+            : {}),
+          readerKind: reader.kind,
+          readerPath: reader.command,
+          readerVersion: reader.version,
+          readerSource: reader.source,
+          filePath,
+          bytes: total,
+          exitCode,
+          signal: exitSignal,
+          stderr: truncateOutput(stderr),
+          elapsedMs: Date.now() - startedAt,
+        });
+        rejectDone(error);
+      } else {
+        void this.log('INFO', `外部 ${label} 流式读取完成`, {
+          readerKind: reader.kind,
+          readerPath: reader.command,
+          readerVersion: reader.version,
+          bytes: total,
+          exitCode,
+          elapsedMs: Date.now() - startedAt,
+          ...(stderr.trim() ? { stderr: truncateOutput(stderr) } : {}),
+        });
+        resolveDone(total);
+      }
+    };
+
+    const limiter = new Transform({
+      transform: (chunk: Buffer, _encoding, callback) => {
+        if (settled) {
+          callback();
+          return;
+        }
+        total += chunk.length;
+        if (total > maxBytes) {
+          callback(
+            new DsmError('FILE_TOO_LARGE', '文件超过复制大小上限', 'CHECK'),
+          );
+          return;
+        }
+        callback(null, chunk);
+      },
+    });
+
+    // 消费端可能尚未 attach error 监听，这里先兜底并同步结束 completed。
+    limiter.on('error', (error: Error) => {
+      child.kill('SIGKILL');
+      finish(
+        error instanceof DsmError
+          ? error
+          : new DsmError('FILE_READ_FAILED', error.message, 'CHECK', true),
+      );
+    });
+
+    child.stdout.on('error', (error: Error) => {
+      limiter.destroy(error);
+    });
+    child.stdout.pipe(limiter);
+
+    timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(new DsmError('FILE_READ_FAILED', '读取文件超时', 'CHECK', true));
+    }, timeoutMs);
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (stderr.length >= MAX_STDERR_BYTES) return;
+      stderr += chunk.toString('utf8');
+      if (stderr.length > MAX_STDERR_BYTES) {
+        stderr = stderr.slice(0, MAX_STDERR_BYTES);
+      }
+    });
+
+    child.once('error', (error) => {
+      finish(
+        new DsmError(
+          'FILE_READ_FAILED',
+          `无法启动 ${label} 读取进程：${error.message}`,
+          'CHECK',
+          true,
+        ),
+      );
+    });
+
+    child.once('close', (code, signal) => {
+      exitCode = code;
+      exitSignal = signal;
+      if (settled) return;
+      if (aborted) {
+        finish(new DsmError('FILE_READ_FAILED', '读取已取消', 'CHECK', true));
+        return;
+      }
+      if (code !== 0) {
+        finish(parseHelperError(stderr, code, label));
+        return;
+      }
+      if (total === 0) {
+        finish(
+          new DsmError(
+            'FILE_READ_FAILED',
+            `${label} 读取进程未返回内容`,
+            'CHECK',
+          ),
+        );
+        return;
+      }
+      finish(null);
+    });
+
+    return {
+      stream: limiter,
+      completed,
+      abort: () => {
+        if (settled) return;
+        aborted = true;
+        child.kill('SIGKILL');
+        limiter.destroy();
+        finish(new DsmError('FILE_READ_FAILED', '读取已取消', 'CHECK', true));
+      },
+    };
+  }
+
   private async log(
-    level: 'INFO' | 'WARN',
+    level: LogLevel,
     message: string,
     details: Record<string, unknown>,
   ): Promise<void> {
@@ -401,4 +653,13 @@ function parseHelperError(
 
 function sha256(value: Buffer): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function truncateOutput(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length > 4_000 ? `${trimmed.slice(0, 4_000)}…` : trimmed;
 }

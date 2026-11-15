@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@dsm/core": "workspace:*",
+    "@dsm/desktop-runtime": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "unzipper": "^0.12.5"

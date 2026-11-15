@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { Logger } from '../../apps/desktop/src/main/logger.ts';
+import { Logger } from '@dsm/desktop-runtime';
 
 const temporaryDirectories: string[] = [];
 

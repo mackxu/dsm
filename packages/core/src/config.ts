@@ -241,7 +241,7 @@ export function createDefaultConfig(): AppConfig {
 }
 
 export function resolveSaveDirectory(
-  config: AppConfig,
+  config: Pick<AppConfig, 'saveDirectory'>,
   documentsDirectory: string,
 ): string {
   return config.saveDirectory ?? path.join(documentsDirectory, 'DSM');

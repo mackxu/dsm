@@ -20,11 +20,22 @@ Write-Host "Building Windows x64 NSIS and ZIP artifacts..."
 pnpm run make:win
 if ($LASTEXITCODE -ne 0) { throw "Windows packaging failed." }
 
-$artifactRoot = Join-Path $PSScriptRoot "../apps/desktop/out/make"
-Get-ChildItem $artifactRoot -Recurse -File |
-  Where-Object {
-    $_.Name -eq "RELEASES" -or
-    $_.Extension -in @(".exe", ".nupkg", ".zip")
-  } |
-  Select-Object FullName, Length |
-  Format-Table -AutoSize
+Write-Host "Building DSM UNLOCK Windows x64 NSIS and ZIP artifacts..."
+pnpm run make:local:win
+if ($LASTEXITCODE -ne 0) { throw "DSM UNLOCK packaging failed." }
+
+$artifactRoots = @(
+  (Join-Path $PSScriptRoot "../apps/desktop/out/make"),
+  (Join-Path $PSScriptRoot "../apps/local-unlock/out/make")
+)
+foreach ($artifactRoot in $artifactRoots) {
+  if (Test-Path $artifactRoot) {
+    Get-ChildItem $artifactRoot -Recurse -File |
+      Where-Object {
+        $_.Name -eq "RELEASES" -or
+        $_.Extension -in @(".exe", ".nupkg", ".zip")
+      } |
+      Select-Object FullName, Length |
+      Format-Table -AutoSize
+  }
+}

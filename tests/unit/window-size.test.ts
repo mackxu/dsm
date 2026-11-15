@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fitWindowToWorkArea } from '../../apps/desktop/src/main/window-size.ts';
+import { fitWindowToWorkArea } from '@dsm/desktop-runtime';
 
 describe('window sizing', () => {
   it('keeps the preferred size on a 1080p display at 100% scaling', () => {

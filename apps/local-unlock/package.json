@@ -1,0 +1,51 @@
+{
+  "name": "local-unlock",
+  "productName": "DSM UNLOCK",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DSM 解锁加密文件",
+  "license": "UNLICENSED",
+  "author": {
+    "name": "DSM Tool"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": ".vite/build/main.cjs",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "package:mac": "electron-forge package --platform=darwin --arch=arm64",
+    "package:win": "electron-forge package --platform=win32 --arch=x64",
+    "make": "electron-forge make",
+    "make:mac": "electron-forge make --platform=darwin --arch=arm64",
+    "make:win": "electron-forge make --platform=win32 --arch=x64",
+    "lint": "oxlint && oxfmt --check",
+    "lint:fix": "oxlint --fix && oxfmt --write",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dsm/core": "workspace:*",
+    "@dsm/desktop-runtime": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "8.0.1",
+    "@electron-forge/maker-dmg": "8.0.1",
+    "@electron-forge/maker-zip": "8.0.1",
+    "@electron-forge/plugin-fuses": "8.0.1",
+    "@electron-forge/plugin-vite": "8.0.1",
+    "@electron-forge/shared-types": "8.0.1",
+    "@electron/fuses": "^2.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "electron": "40.10.6",
+    "electron-forge-maker-nsis": "26.18.0",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.0.0",
+    "typescript": "6.0.3",
+    "vite": "^8.0.0"
+  }
+}

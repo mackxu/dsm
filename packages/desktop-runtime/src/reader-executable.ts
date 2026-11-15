@@ -189,7 +189,9 @@ export function queryExecutableVersion(
   });
 }
 
-export function minimalEnvironment(): NodeJS.ProcessEnv {
+export function minimalEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of [
     'PATH',
@@ -203,7 +205,7 @@ export function minimalEnvironment(): NodeJS.ProcessEnv {
     'LANG',
     'LC_ALL',
   ]) {
-    const value = process.env[key];
+    const value = source[key];
     if (value) environment[key] = value;
   }
   return environment;

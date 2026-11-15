@@ -1,15 +1,15 @@
 import type {
   AppConfig,
   DsmErrorCode,
-  ReaderKind,
+  ReaderCheckResult,
+  ReaderProbeResult,
   ReaderSelection,
-  ReaderSource,
   RecoveryAction,
   TaskSnapshot,
   TaskStage,
   TokenStatus,
 } from '@dsm/core';
-import type { LogEntry, LogPage } from './main/logger';
+import type { LogEntry, LogPage } from '@dsm/desktop-runtime';
 
 export const READER_INSTALL_PAGE_URL =
   'https://nas.pxsemic.local:5001/sharing/6592pf9xj';
@@ -58,30 +58,7 @@ export interface SaveSettingsResult {
   connection: ConnectionResult | null;
 }
 
-export interface ReaderProbeResult {
-  fileName: string;
-  preferredReader: ReaderKind;
-  usedReader: ReaderKind;
-  fallbackUsed: boolean;
-  readerPath: string;
-  readerVersion: string;
-  readerSource: ReaderSource;
-  directSize: number;
-  readerSize: number;
-  directSha256: string;
-  readerSha256: string;
-  directHead: string;
-  readerHead: string;
-  identical: boolean;
-}
-
-export interface ReaderCheckResult {
-  readerKind: ReaderKind;
-  readerPath: string;
-  readerVersion: string;
-  readerSource: ReaderSource;
-  fallbackUsed: boolean;
-}
+export type { ReaderCheckResult, ReaderProbeResult };
 
 export interface DesktopApi {
   bootstrap(): Promise<ApiResult<BootstrapData>>;

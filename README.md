@@ -37,6 +37,10 @@ pnpm start
 | `pnpm run make:mac` | 生成 macOS arm64 DMG 与 ZIP |
 | `pnpm run package:win` | 生成 Windows x64 未安装应用 |
 | `pnpm run make:win` | 生成 Windows x64 NSIS 安装包与 ZIP |
+| `pnpm start:local` | 启动 DSM UNLOCK 本地直写应用 |
+| `pnpm run package:local` | 生成当前系统的 DSM UNLOCK 未安装应用 |
+| `pnpm run make:local` | 生成当前系统的 DSM UNLOCK 安装产物 |
+| `pnpm run make:local:win` | 生成 DSM UNLOCK Windows x64 NSIS 安装包与 ZIP |
 
 Windows 安装产物位于 `apps/desktop/out/make`：
 
@@ -132,7 +136,7 @@ stdout 管道把明文交给主进程上传，内容不落盘，避免被重新�
 
 1. 设置页中对应读取器的路径；
 2. 环境变量 `DSM_NODE_PATH` / `DSM_PYTHON_PATH`；
-3. 自动探测系统 PATH、常见安装目录和 nvm / pyenv / conda 目录。
+3. 自动探测系统 PATH、常见安装目录和 nvm / fnm / Volta / pyenv / conda 目录。
 
 只有优先读取器没有显式配置且自动探测完全找不到时，才会自动尝试另一个读取器，
 并按 INFO 记录实际读取器、路径、版本和来源。显式配置的路径不可执行、helper
@@ -165,14 +169,66 @@ OneStep 软件库下载前置依赖安装包；安装完成后点击「重新检
 ## 目录
 
 ```text
-apps/desktop/    Electron Main、Preload 与 React Renderer
-packages/core/   配置、Token 规则、GitLab、任务状态与安全解压
-tests/           Vitest 单元/集成测试及 GitLab fixtures
-scripts/         构建期预置配置校验脚本
+apps/desktop/           GitLab 同步应用的 Electron Main、Preload 与 React Renderer
+apps/local-unlock/      DSM UNLOCK 本地直写应用
+packages/core/          配置、Token 规则、GitLab、任务状态、安全解压与本地复制控制器
+packages/desktop-runtime/ 读取器解析、日志、PowerShell 写入器等主进程共享模块
+tests/                  Vitest 单元/集成测试及 GitLab fixtures
+scripts/                构建期预置配置校验脚本
 ```
 
 Renderer 不能读取已有 Token、访问通用文件系统或执行命令。网络请求、Token 文件和
 文件操作全部位于 Electron Main。
+
+## DSM UNLOCK（本地直写应用）
+
+`apps/local-unlock` 是独立于 GitLab 模式的本地直写应用，产品名「DSM UNLOCK」。
+它不使用 GitLab 上传与归档下载，而是：
+
+1. 由 DSM 白名单中的 Node/Python 读取加密文件，明文经 stdout 管道交给主进程；
+2. 主进程边转发边计算 SHA-256，并通过 stdin 交给白名单 PowerShell；
+3. `resources/dsm-file-writer.ps1` 使用 .NET `FileStream` 写入目标目录下的临时文件；
+4. 主进程校验字节数与哈希后原子 rename 为最终文件，失败时清理临时文件。
+
+明文只经过进程管道和内存，不写临时明文文件。输出布局与 GitLab 模式的结果目录一致：
+
+```text
+保存目录/<UTC+8 时间戳>-<任务ID前6位>/<原文件名>
+```
+
+启动与打包：
+
+```bash
+pnpm start:local
+pnpm run package:local
+pnpm run make:local
+pnpm run make:local:win
+```
+
+Windows 安装产物位于 `apps/local-unlock/out/make`，文件名形如
+`DSM-UNLOCK-<version>-x64-Setup.exe`。旧 `apps/desktop` 的 GitLab 模式保留，
+两者独立打包、互不影响。
+
+设置页可配置保存目录、单文件上限（默认 1 GB）、复制超时（默认 10 分钟）、
+优先读取器与 PowerShell 路径。PowerShell 解析顺序为：设置中的路径 →
+进程环境变量 `POWERSHELL_PATH` → Windows 自带的 `powershell.exe` → PATH 中的
+`pwsh`。在 DSM 环境中，`powershell.exe` 必须在进程白名单内；设置页的
+「测试写入」会在保存目录写入 1 MB 随机数据，校验字节数与 SHA-256 后删除，
+可用于确认写入链路。macOS 仅用于开发调试，需要安装 `pwsh`；正式目标为
+Windows x64。
+
+### 故障排查
+
+任务失败时，运行日志会记录失败阶段、错误码、错误消息、源/目标路径、已处理
+字节数，以及读取器/PowerShell 的退出码与 stderr；文件内容不会写入日志。排查时
+优先查看 `任务状态：FAILED`、`[WRITE]`、`[FILE]` 三类日志。
+
+可先在设置页点击「测试写入」：它会用当前 PowerShell 路径在保存目录写入 1 MB
+随机数据并校验后删除，用于区分“PowerShell 写入链路问题”和“DSM 读取问题”。
+若日志出现 `WRITE_VERIFY_FAILED`，查看字节数/哈希不一致信息；若 PowerShell 的
+stdout/stderr 为空且退出码异常，检查 DSM 白名单、执行策略与目录写入权限。
+
+`resources/dsm-file-writer.ps1` 必须保存为 UTF-8 with BOM，否则 Windows PowerShell 5.1 会按 ANSI 解码中文内容，可能导致退出码 1 且没有错误输出。
 
 ## 构建产物
 

@@ -11,29 +11,27 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { TaskController, type TaskSnapshot } from '@dsm/core';
+import {
+  createStartupReaderCheck,
+  fitWindowToWorkArea,
+  Logger,
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+  WhitelistedFileReader,
+  type StartupReaderCheckHandle,
+} from '@dsm/desktop-runtime';
 
 import { resolveLocalClientBranchNamespace } from './main/client-identity.ts';
 import { ConfigStore } from './main/config-store.ts';
 import { setupIpc } from './main/ipc.ts';
-import { Logger } from './main/logger.ts';
 import { LoggingHttpTransport } from './main/logging-http-transport.ts';
 import {
   ElectronHttpTransport,
   ElectronPlatform,
 } from './main/platform/electron-platform.ts';
 import { PresetStore } from './main/preset-store.ts';
-import {
-  createStartupReaderCheck,
-  type StartupReaderCheckHandle,
-} from './main/startup-reader-check.ts';
 import { TaskHistoryStore } from './main/task-history-store.ts';
 import { TokenStore } from './main/token-store.ts';
-import {
-  fitWindowToWorkArea,
-  MIN_WINDOW_HEIGHT,
-  MIN_WINDOW_WIDTH,
-} from './main/window-size.ts';
-import { WhitelistedFileReader } from './main/whitelisted-file-reader.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let taskController: TaskController | null = null;

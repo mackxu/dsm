@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   isSupportedPythonVersion,
   pythonCandidates,
-} from '../../apps/desktop/src/main/python-path.ts';
+} from '@dsm/desktop-runtime';
 
 const temporaryDirectories: string[] = [];
 

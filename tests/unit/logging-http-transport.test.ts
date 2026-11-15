@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { HttpTransport } from '@dsm/core';
-import { Logger } from '../../apps/desktop/src/main/logger.ts';
+import { Logger } from '@dsm/desktop-runtime';
 import { LoggingHttpTransport } from '../../apps/desktop/src/main/logging-http-transport.ts';
 
 const temporaryDirectories: string[] = [];

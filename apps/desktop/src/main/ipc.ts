@@ -31,11 +31,13 @@ import type {
 } from '../shared.ts';
 import { READER_INSTALL_PAGE_URL } from '../shared.ts';
 import type { ConfigStore } from './config-store.ts';
-import type { Logger } from './logger.ts';
-import { readerLabel } from './reader-chain.ts';
+import {
+  readerLabel,
+  type Logger,
+  type WhitelistedFileReader,
+} from '@dsm/desktop-runtime';
 import type { TaskHistoryStore } from './task-history-store.ts';
 import type { TokenStore } from './token-store.ts';
-import type { WhitelistedFileReader } from './whitelisted-file-reader.ts';
 
 export interface IpcServices {
   getMainWindow: () => BrowserWindow;

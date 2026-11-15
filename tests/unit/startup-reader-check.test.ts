@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { ReaderChainResult } from '../../apps/desktop/src/main/reader-chain.ts';
+import type { ReaderChainResult } from '@dsm/desktop-runtime';
 import {
   createStartupReaderCheck,
   runStartupReaderCheck,
   STARTUP_READER_CHECK_DELAY_MS,
   type StartupReaderCheckDependencies,
-} from '../../apps/desktop/src/main/startup-reader-check.ts';
+} from '@dsm/desktop-runtime';
 
 afterEach(() => {
   vi.useRealTimers();

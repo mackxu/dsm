@@ -11,12 +11,14 @@
     "noEmit": true,
     "types": ["node", "vitest/globals"],
     "paths": {
-      "@dsm/core": ["./../packages/core/src/index.ts"]
+      "@dsm/core": ["./../packages/core/src/index.ts"],
+      "@dsm/desktop-runtime": ["./../packages/desktop-runtime/src/index.ts"]
     }
   },
   "include": [
     "./**/*.ts",
     "../packages/core/src/**/*.ts",
+    "../packages/desktop-runtime/src/**/*.ts",
     "../scripts/**/*.ts"
   ]
 }

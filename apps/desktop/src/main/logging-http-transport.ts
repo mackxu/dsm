@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { HttpTransport } from '@dsm/core';
 
-import type { Logger } from './logger.ts';
+import type { Logger } from '@dsm/desktop-runtime';
 
 const MAX_BODY_SUMMARY_CHARS = 500;
 const MAX_LOGGED_REQUEST_BODY_CHARS = 100_000;

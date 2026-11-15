@@ -5,6 +5,8 @@ export type TaskStage =
   | 'DOWNLOAD'
   | 'EXTRACT'
   | 'CLEANUP'
+  | 'COPY'
+  | 'VERIFY'
   | 'CONFIG';
 
 export type DsmErrorCode =
@@ -18,6 +20,9 @@ export type DsmErrorCode =
   | 'FILE_CHANGED'
   | 'FILE_READ_FAILED'
   | 'READER_UNAVAILABLE'
+  | 'WRITER_UNAVAILABLE'
+  | 'WRITE_FAILED'
+  | 'WRITE_VERIFY_FAILED'
   | 'SAVE_DIRECTORY_UNAVAILABLE'
   | 'OVERWRITE_CONFIRMATION_REQUIRED'
   | 'BRANCH_CREATE_FAILED'

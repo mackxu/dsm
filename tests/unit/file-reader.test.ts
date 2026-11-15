@@ -7,19 +7,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DsmError, type ReaderKind, type ReaderSelection } from '@dsm/core';
 
-import type { Logger } from '../../apps/desktop/src/main/logger.ts';
+import type { Logger } from '@dsm/desktop-runtime';
 import {
   buildHelperInvocation,
-  WhitelistedFileReader,
-} from '../../apps/desktop/src/main/whitelisted-file-reader.ts';
-import {
   readerLabel,
   resolveReaderChain,
-} from '../../apps/desktop/src/main/reader-chain.ts';
-import type {
-  ReaderResolver,
-  ResolvedReader,
-} from '../../apps/desktop/src/main/reader-executable.ts';
+  WhitelistedFileReader,
+  type ReaderResolver,
+  type ResolvedReader,
+} from '@dsm/desktop-runtime';
 
 const helperPath = path.resolve('resources/dsm-file-reader.cjs');
 const pythonHelperPath = path.resolve('resources/dsm-file-reader.py');
@@ -28,9 +24,9 @@ const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      fs.rm(directory, { recursive: true, force: true }),
-    ),
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => fs.rm(directory, { recursive: true, force: true })),
   );
 });
 
@@ -98,7 +94,9 @@ function findPython(): string | null {
 }
 
 async function makeTemporaryDirectory(): Promise<string> {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dsm-reader-test-'));
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'dsm-reader-test-'),
+  );
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -127,9 +125,7 @@ function resolvedReader(
   };
 }
 
-function selection(
-  preferredReader: ReaderKind = 'node',
-): ReaderSelection {
+function selection(preferredReader: ReaderKind = 'node'): ReaderSelection {
   return {
     preferredReader,
     nodeReaderPath: null,
@@ -137,19 +133,20 @@ function selection(
   };
 }
 
-function createReader(options: {
-  node?: ReaderResolver;
-  python?: ReaderResolver;
-  readerSelection?: ReaderSelection;
-  nodeHelperPath?: string;
-  pythonHelperPath?: string;
-  logger?: Logger;
-} = {}): WhitelistedFileReader {
+function createReader(
+  options: {
+    node?: ReaderResolver;
+    python?: ReaderResolver;
+    readerSelection?: ReaderSelection;
+    nodeHelperPath?: string;
+    pythonHelperPath?: string;
+    logger?: Logger;
+  } = {},
+): WhitelistedFileReader {
   return new WhitelistedFileReader({
     nodeHelperPath: options.nodeHelperPath ?? helperPath,
     pythonHelperPath: options.pythonHelperPath ?? helperPath,
-    getReaderSelection: async () =>
-      options.readerSelection ?? selection(),
+    getReaderSelection: async () => options.readerSelection ?? selection(),
     logger: options.logger,
     resolvers: {
       node: options.node ?? missingResolver('node'),
@@ -321,7 +318,10 @@ describe('resolveReaderChain', () => {
     );
     const python = fakeResolver('python', vi.fn());
 
-    const result = await resolveReaderChain(selection('node'), { node, python });
+    const result = await resolveReaderChain(selection('node'), {
+      node,
+      python,
+    });
 
     expect(result.reader.kind).toBe('node');
     expect(result.fallbackUsed).toBe(false);
@@ -335,7 +335,10 @@ describe('resolveReaderChain', () => {
       vi.fn().mockResolvedValue(resolvedReader('python', '/usr/bin/python3')),
     );
 
-    const result = await resolveReaderChain(selection('node'), { node, python });
+    const result = await resolveReaderChain(selection('node'), {
+      node,
+      python,
+    });
 
     expect(result.reader.kind).toBe('python');
     expect(result.fallbackUsed).toBe(true);
@@ -553,9 +556,7 @@ describe('WhitelistedFileReader', () => {
     );
     const node = fakeResolver(
       'node',
-      vi
-        .fn()
-        .mockResolvedValue(resolvedReader('node', command, 'config')),
+      vi.fn().mockResolvedValue(resolvedReader('node', command, 'config')),
     );
     const log = vi.fn().mockResolvedValue(undefined);
     const reader = createReader({
@@ -613,9 +614,7 @@ describe('WhitelistedFileReader', () => {
     );
     const node = fakeResolver(
       'node',
-      vi
-        .fn()
-        .mockResolvedValue(resolvedReader('node', command, 'config')),
+      vi.fn().mockResolvedValue(resolvedReader('node', command, 'config')),
     );
     const pythonResolve = vi.fn().mockResolvedValue(null);
     const python = fakeResolver('python', pythonResolve);
@@ -634,9 +633,7 @@ describe('WhitelistedFileReader', () => {
       'node',
       vi
         .fn()
-        .mockResolvedValue(
-          resolvedReader('node', process.execPath, 'config'),
-        ),
+        .mockResolvedValue(resolvedReader('node', process.execPath, 'config')),
     );
     const pythonResolve = vi.fn().mockResolvedValue(null);
     const python = fakeResolver('python', pythonResolve);
@@ -737,5 +734,174 @@ describe('readerLabel', () => {
   it('returns display labels', () => {
     expect(readerLabel('node')).toBe('Node');
     expect(readerLabel('python')).toBe('Python');
+  });
+});
+
+describe('WhitelistedFileReader.openStream', () => {
+  it('streams the plaintext and resolves the byte count', async () => {
+    const root = await makeTemporaryDirectory();
+    const filePath = path.join(root, 'stream.txt');
+    const content = Buffer.from('streamed plaintext');
+    await fs.writeFile(filePath, content);
+
+    const reader = createReader({
+      node: fakeResolver(
+        'node',
+        vi
+          .fn()
+          .mockResolvedValue(
+            resolvedReader('node', process.execPath, 'config'),
+          ),
+      ),
+    });
+
+    const session = await reader.openStream(filePath, {
+      maxBytes: 1024,
+      timeoutMs: 5_000,
+    });
+    const chunks: Buffer[] = [];
+    for await (const chunk of session.stream) {
+      chunks.push(Buffer.from(chunk));
+    }
+
+    expect(Buffer.concat(chunks).equals(content)).toBe(true);
+    await expect(session.completed).resolves.toBe(content.length);
+  });
+
+  it('enforces the plaintext size limit while streaming', async () => {
+    const root = await makeTemporaryDirectory();
+    const filePath = path.join(root, 'large.txt');
+    const helper = path.join(root, 'unbounded-helper.cjs');
+    await fs.writeFile(filePath, '0123456789');
+    await fs.writeFile(helper, "process.stdout.write('0123456789');\n");
+
+    const reader = createReader({
+      node: fakeResolver(
+        'node',
+        vi
+          .fn()
+          .mockResolvedValue(
+            resolvedReader('node', process.execPath, 'config'),
+          ),
+      ),
+      nodeHelperPath: helper,
+    });
+
+    const session = await reader.openStream(filePath, {
+      maxBytes: 4,
+      timeoutMs: 5_000,
+    });
+
+    await expect(
+      (async () => {
+        for await (const _chunk of session.stream) {
+          // Consume until the limiter raises.
+        }
+      })(),
+    ).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+    await expect(session.completed).rejects.toMatchObject({
+      code: 'FILE_TOO_LARGE',
+    });
+  });
+
+  it('maps helper failures to DsmError', async () => {
+    const root = await makeTemporaryDirectory();
+    const reader = createReader({
+      node: fakeResolver(
+        'node',
+        vi
+          .fn()
+          .mockResolvedValue(
+            resolvedReader('node', process.execPath, 'config'),
+          ),
+      ),
+    });
+
+    const session = await reader.openStream(path.join(root, 'missing.txt'), {
+      maxBytes: 1024,
+      timeoutMs: 5_000,
+    });
+    for await (const _chunk of session.stream) {
+      // Drain the empty stream.
+    }
+
+    await expect(session.completed).rejects.toMatchObject({
+      code: 'FILE_READ_FAILED',
+    });
+  });
+
+  it('logs the helper exit code and stderr on failure', async () => {
+    const root = await makeTemporaryDirectory();
+    const log = vi.fn().mockResolvedValue(undefined);
+    const reader = createReader({
+      node: fakeResolver(
+        'node',
+        vi
+          .fn()
+          .mockResolvedValue(
+            resolvedReader('node', process.execPath, 'config'),
+          ),
+      ),
+      logger: { log } as unknown as Logger,
+    });
+
+    const session = await reader.openStream(path.join(root, 'missing.txt'), {
+      maxBytes: 1024,
+      timeoutMs: 5_000,
+    });
+    for await (const _chunk of session.stream) {
+      // Drain the empty stream.
+    }
+
+    await expect(session.completed).rejects.toMatchObject({
+      code: 'FILE_READ_FAILED',
+    });
+    await vi.waitFor(() => {
+      expect(log).toHaveBeenCalledWith(
+        'ERROR',
+        'FILE',
+        expect.stringContaining('流式读取失败'),
+        expect.objectContaining({
+          details: expect.objectContaining({
+            code: 'FILE_READ_FAILED',
+            exitCode: 1,
+          }),
+        }),
+      );
+    });
+  });
+
+  it('aborts a running helper process', async () => {
+    const root = await makeTemporaryDirectory();
+    const filePath = path.join(root, 'slow.txt');
+    const helper = path.join(root, 'slow-helper.cjs');
+    await fs.writeFile(filePath, 'content');
+    await fs.writeFile(
+      helper,
+      "setTimeout(() => { process.stdout.write('late'); }, 5000);\n",
+    );
+
+    const reader = createReader({
+      node: fakeResolver(
+        'node',
+        vi
+          .fn()
+          .mockResolvedValue(
+            resolvedReader('node', process.execPath, 'config'),
+          ),
+      ),
+      nodeHelperPath: helper,
+    });
+
+    const session = await reader.openStream(filePath, {
+      maxBytes: 1024,
+      timeoutMs: 10_000,
+    });
+    session.abort();
+
+    await expect(session.completed).rejects.toMatchObject({
+      code: 'FILE_READ_FAILED',
+      message: '读取已取消',
+    });
   });
 });
