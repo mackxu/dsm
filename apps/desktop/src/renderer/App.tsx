@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { TaskSnapshot, TokenStatus } from '@dsm/core';
 import type { BootstrapData } from '../shared.ts';
@@ -7,11 +7,17 @@ import { LogsPage } from './LogsPage.tsx';
 import { ReaderDependencyDialog } from './ReaderDependencyDialog.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
 import { TaskDialog } from './TaskDialog.tsx';
+import { Toast } from './Toast.tsx';
 import { UploadPage } from './UploadPage.tsx';
 
 export type Page = 'upload' | 'settings' | 'logs';
 
 type SubPage = Exclude<Page, 'upload'>;
+
+interface ToastMessage {
+  id: number;
+  text: string;
+}
 
 const PAGE_TITLES: Record<SubPage, string> = {
   settings: '设置',
@@ -35,10 +41,22 @@ export function App(): React.JSX.Element {
   const [task, setTask] = useState<TaskSnapshot | null>(null);
   const [recentTasks, setRecentTasks] = useState<TaskSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [readerFailure, setReaderFailure] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const toastSeq = useRef(0);
   const workspaceRef = useRef<HTMLElement>(null);
+
+  const showNotice = useCallback((message: string | null): void => {
+    if (message === null) {
+      setToast(null);
+      return;
+    }
+    toastSeq.current += 1;
+    setToast({ id: toastSeq.current, text: message });
+  }, []);
+
+  const dismissToast = useCallback((): void => setToast(null), []);
 
   useEffect(() => {
     let active = true;
@@ -50,7 +68,7 @@ export function App(): React.JSX.Element {
         setRecentTasks(mergeRecentTasks(data.currentTask, data.recentTasks));
       })
       .catch((error: unknown) => {
-        if (active) setNotice(errorMessage(error));
+        if (active) showNotice(errorMessage(error));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -66,7 +84,7 @@ export function App(): React.JSX.Element {
       unsubscribe();
       unsubscribeReaderCheck();
     };
-  }, []);
+  }, [showNotice]);
 
   useEffect(() => {
     workspaceRef.current?.scrollTo(0, 0);
@@ -94,7 +112,7 @@ export function App(): React.JSX.Element {
           ),
         );
       } catch (error) {
-        setNotice(errorMessage(error));
+        showNotice(errorMessage(error));
       }
     }
   }
@@ -136,7 +154,7 @@ export function App(): React.JSX.Element {
       <main className="boot-screen">
         <div className="brand-mark small">DSM</div>
         <h1>无法启动应用</h1>
-        <p className="error-text">{notice ?? '未知错误'}</p>
+        <p className="error-text">{toast?.text ?? '未知错误'}</p>
       </main>
     );
   }
@@ -193,15 +211,6 @@ export function App(): React.JSX.Element {
         ref={workspaceRef}
       >
         <div className={logsMode ? 'page-content logs-mode' : 'page-content'}>
-          {notice && (
-            <div className="notice" role="status">
-              <span>{notice}</span>
-              <button type="button" onClick={() => setNotice(null)}>
-                关闭
-              </button>
-            </div>
-          )}
-
           <section className="upload-page" hidden={page !== 'upload'}>
             <UploadPage
               bootstrap={bootstrap}
@@ -210,7 +219,7 @@ export function App(): React.JSX.Element {
               active={active}
               onTask={applyTask}
               onOpenSettings={() => setPage('settings')}
-              onNotice={setNotice}
+              onNotice={showNotice}
             />
           </section>
 
@@ -223,11 +232,11 @@ export function App(): React.JSX.Element {
               }}
               onTokenChanged={handleTokenChanged}
               onDirtyChange={setSettingsDirty}
-              onNotice={setNotice}
+              onNotice={showNotice}
             />
           )}
 
-          {page === 'logs' && <LogsPage onNotice={setNotice} />}
+          {page === 'logs' && <LogsPage onNotice={showNotice} />}
         </div>
       </main>
 
@@ -236,7 +245,7 @@ export function App(): React.JSX.Element {
           task={task}
           onTask={applyTask}
           onOpenSettings={() => setPage('settings')}
-          onNotice={setNotice}
+          onNotice={showNotice}
         />
       )}
 
@@ -244,8 +253,12 @@ export function App(): React.JSX.Element {
         <ReaderDependencyDialog
           onDismiss={() => setReaderFailure(false)}
           onResolved={() => setReaderFailure(false)}
-          onNotice={setNotice}
+          onNotice={showNotice}
         />
+      )}
+
+      {toast && (
+        <Toast key={toast.id} message={toast.text} onDismiss={dismissToast} />
       )}
     </div>
   );

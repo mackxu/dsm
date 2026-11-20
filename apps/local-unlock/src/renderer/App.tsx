@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { CopySnapshot } from '@dsm/core';
 
@@ -8,10 +8,16 @@ import { CopyPage } from './CopyPage.tsx';
 import { DependencyDialog } from './DependencyDialog.tsx';
 import { LogsPage } from './LogsPage.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
+import { Toast } from './Toast.tsx';
 
 export type Page = 'copy' | 'settings' | 'logs';
 
 type SubPage = Exclude<Page, 'copy'>;
+
+interface ToastMessage {
+  id: number;
+  text: string;
+}
 
 const PAGE_TITLES: Record<SubPage, string> = {
   settings: '设置',
@@ -30,11 +36,23 @@ export function App(): React.JSX.Element {
   const [bootstrap, setBootstrap] = useState<BootstrapData | null>(null);
   const [task, setTask] = useState<CopySnapshot | null>(null);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [dependencyFailure, setDependencyFailure] =
     useState<DependencyFailure | null>(null);
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const toastSeq = useRef(0);
   const workspaceRef = useRef<HTMLElement>(null);
+
+  const showNotice = useCallback((message: string | null): void => {
+    if (message === null) {
+      setToast(null);
+      return;
+    }
+    toastSeq.current += 1;
+    setToast({ id: toastSeq.current, text: message });
+  }, []);
+
+  const dismissToast = useCallback((): void => setToast(null), []);
 
   useEffect(() => {
     let active = true;
@@ -45,7 +63,7 @@ export function App(): React.JSX.Element {
         setTask(data.currentTask);
       })
       .catch((error: unknown) => {
-        if (active) setNotice(errorMessage(error));
+        if (active) showNotice(errorMessage(error));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -63,7 +81,7 @@ export function App(): React.JSX.Element {
       unsubscribeTask();
       unsubscribeDependency();
     };
-  }, []);
+  }, [showNotice]);
 
   useEffect(() => {
     workspaceRef.current?.scrollTo(0, 0);
@@ -96,7 +114,7 @@ export function App(): React.JSX.Element {
       <main className="boot-screen">
         <div className="brand-mark small">DSM</div>
         <h1>无法启动应用</h1>
-        <p className="error-text">{notice ?? '未知错误'}</p>
+        <p className="error-text">{toast?.text ?? '未知错误'}</p>
       </main>
     );
   }
@@ -153,15 +171,6 @@ export function App(): React.JSX.Element {
         ref={workspaceRef}
       >
         <div className={logsMode ? 'page-content logs-mode' : 'page-content'}>
-          {notice && (
-            <div className="notice" role="status">
-              <span>{notice}</span>
-              <button type="button" onClick={() => setNotice(null)}>
-                关闭
-              </button>
-            </div>
-          )}
-
           <section className="upload-page" hidden={page !== 'copy'}>
             <CopyPage
               bootstrap={bootstrap}
@@ -169,7 +178,7 @@ export function App(): React.JSX.Element {
               active={active}
               onTask={setTask}
               onOpenSettings={() => setPage('settings')}
-              onNotice={setNotice}
+              onNotice={showNotice}
             />
           </section>
 
@@ -179,11 +188,11 @@ export function App(): React.JSX.Element {
               locked={active}
               onSaved={handleSaved}
               onDirtyChange={setSettingsDirty}
-              onNotice={setNotice}
+              onNotice={showNotice}
             />
           )}
 
-          {page === 'logs' && <LogsPage onNotice={setNotice} />}
+          {page === 'logs' && <LogsPage onNotice={showNotice} />}
         </div>
       </main>
 
@@ -192,8 +201,12 @@ export function App(): React.JSX.Element {
           failure={dependencyFailure}
           onDismiss={() => setDependencyFailure(null)}
           onResolved={() => setDependencyFailure(null)}
-          onNotice={setNotice}
+          onNotice={showNotice}
         />
+      )}
+
+      {toast && (
+        <Toast key={toast.id} message={toast.text} onDismiss={dismissToast} />
       )}
     </div>
   );

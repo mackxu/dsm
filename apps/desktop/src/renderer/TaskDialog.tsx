@@ -55,9 +55,7 @@ export function TaskDialog({
   async function confirm(allowOverwrite: boolean): Promise<void> {
     setBusy(true);
     try {
-      onTask(
-        await unwrap(window.dsm.confirmTask(task.taskId, allowOverwrite)),
-      );
+      onTask(await unwrap(window.dsm.confirmTask(task.taskId, allowOverwrite)));
     } catch (error) {
       onNotice(errorMessage(error));
     } finally {
