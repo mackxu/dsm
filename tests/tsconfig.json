@@ -12,13 +12,15 @@
     "types": ["node", "vitest/globals"],
     "paths": {
       "@dsm/core": ["./../packages/core/src/index.ts"],
-      "@dsm/desktop-runtime": ["./../packages/desktop-runtime/src/index.ts"]
+      "@dsm/desktop-runtime": ["./../packages/desktop-runtime/src/index.ts"],
+      "jsdsm": ["./../apps/jsdsm/src/index.ts"]
     }
   },
   "include": [
     "./**/*.ts",
     "../packages/core/src/**/*.ts",
     "../packages/desktop-runtime/src/**/*.ts",
+    "../apps/jsdsm/src/**/*.ts",
     "../scripts/**/*.ts"
   ]
 }

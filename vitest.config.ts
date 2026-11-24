@@ -8,6 +8,7 @@ export default defineConfig({
         './packages/desktop-runtime/src/index.ts',
         import.meta.url,
       ).pathname,
+      jsdsm: new URL('./apps/jsdsm/src/index.ts', import.meta.url).pathname,
     },
   },
   test: {

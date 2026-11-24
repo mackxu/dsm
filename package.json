@@ -10,9 +10,12 @@
   "scripts": {
     "start": "pnpm --filter desktop start",
     "start:local": "pnpm --filter local-unlock start",
-    "check": "pnpm run typecheck && pnpm --filter @dsm/core typecheck && pnpm --filter @dsm/desktop-runtime typecheck && pnpm --filter desktop typecheck && pnpm --filter local-unlock typecheck",
+    "check": "pnpm run typecheck && pnpm --filter @dsm/core typecheck && pnpm --filter @dsm/desktop-runtime typecheck && pnpm --filter desktop typecheck && pnpm --filter local-unlock typecheck && pnpm --filter @pxsemic/jsdsm typecheck",
     "typecheck": "tsc --noEmit -p tests/tsconfig.json",
     "test": "vitest run",
+    "build:jsdsm": "pnpm --filter @pxsemic/jsdsm build",
+    "pack:jsdsm": "pnpm --filter @pxsemic/jsdsm build && pnpm --filter @pxsemic/jsdsm pack",
+    "publish:jsdsm": "pnpm --filter @pxsemic/jsdsm build && pnpm --filter @pxsemic/jsdsm publish --access public",
     "icons": "node scripts/generate-icon.mjs",
     "check:preset": "node scripts/check-preset.mjs",
     "package": "pnpm run check:preset && pnpm --filter desktop package",

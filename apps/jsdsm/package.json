@@ -1,0 +1,56 @@
+{
+  "name": "@pxsemic/jsdsm",
+  "version": "0.1.0",
+  "description": "从 DSM 透明加密目录读取文件明文并保存到本地目录",
+  "type": "module",
+  "bin": {
+    "jsdsm": "dist/cli.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "DSM Tool"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mackxu/dsm.git",
+    "directory": "apps/jsdsm"
+  },
+  "homepage": "https://github.com/mackxu/dsm/tree/main/apps/jsdsm#readme",
+  "bugs": {
+    "url": "https://github.com/mackxu/dsm/issues"
+  },
+  "keywords": [
+    "dsm",
+    "synology",
+    "transparent-encryption",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint && oxfmt --check",
+    "lint:fix": "oxlint --fix && oxfmt --write",
+    "prepack": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "0.28.2",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.0.0",
+    "typescript": "6.0.3"
+  }
+}

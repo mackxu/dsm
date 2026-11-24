@@ -28,7 +28,7 @@ pnpm start
 
 | 命令 | 用途 |
 | --- | --- |
-| `pnpm run check` | 检查 `@dsm/core`、桌面应用、测试与冒烟脚本源码 |
+| `pnpm run check` | 检查 `@dsm/core`、桌面应用、jsdsm CLI、测试与冒烟脚本源码 |
 | `pnpm run test` | 运行 Vitest 单元和集成测试 |
 | `pnpm start` | 启动 Electron 应用 |
 | `pnpm run package` | 为当前系统生成未安装应用 |
@@ -41,6 +41,9 @@ pnpm start
 | `pnpm run package:local` | 生成当前系统的 DSM UNLOCK 未安装应用 |
 | `pnpm run make:local` | 生成当前系统的 DSM UNLOCK 安装产物 |
 | `pnpm run make:local:win` | 生成 DSM UNLOCK Windows x64 NSIS 安装包与 ZIP |
+| `pnpm run build:jsdsm` | 构建 jsdsm CLI 单文件包 |
+| `pnpm run pack:jsdsm` | 构建并生成 jsdsm npm tarball |
+| `pnpm run publish:jsdsm` | 构建并发布 jsdsm 到 npm（需先登录） |
 
 Windows 安装产物位于 `apps/desktop/out/make`：
 
@@ -171,6 +174,7 @@ OneStep 软件库下载前置依赖安装包；安装完成后点击「重新检
 ```text
 apps/desktop/           GitLab 同步应用的 Electron Main、Preload 与 React Renderer
 apps/local-unlock/      DSM UNLOCK 本地直写应用
+apps/jsdsm/             DSM 明文导出 CLI（npm 包 jsdsm）
 packages/core/          配置、Token 规则、GitLab、任务状态、安全解压与本地复制控制器
 packages/desktop-runtime/ 读取器解析、日志、PowerShell 写入器等主进程共享模块
 tests/                  Vitest 单元/集成测试及 GitLab fixtures
@@ -229,6 +233,27 @@ Windows x64。
 stdout/stderr 为空且退出码异常，检查 DSM 白名单、执行策略与目录写入权限。
 
 `resources/dsm-file-writer.ps1` 必须保存为 UTF-8 with BOM，否则 Windows PowerShell 5.1 会按 ANSI 解码中文内容，可能导致退出码 1 且没有错误输出。
+
+## jsdsm CLI（DSM 明文导出）
+
+`apps/jsdsm` 是独立发布到 npm 的 CLI 包（npm 包名 `@pxsemic/jsdsm`，命令名
+`jsdsm`），用于读取 DSM 透明加密环境中的单个文件，并保存到本地目录，无需安装
+Electron 应用。
+
+```bash
+npx @pxsemic/jsdsm "<文件路径>"             # 写入源文件所在目录
+npx @pxsemic/jsdsm "<文件路径>" "<输出目录>"   # 写入指定目录
+```
+
+默认写回源文件所在目录；同名文件自动改名为 `name (n).ext`，绝不覆盖；输出目录
+不存在时自动创建。构建与打包：
+
+```bash
+pnpm run build:jsdsm
+pnpm run pack:jsdsm
+```
+
+详见 [apps/jsdsm/README.md](apps/jsdsm/README.md)。
 
 ## 构建产物
 

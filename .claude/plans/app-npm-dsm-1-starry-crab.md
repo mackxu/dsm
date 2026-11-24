@@ -12,25 +12,24 @@ DSM 白名单 Node/Python 读取明文
 ```
 
 仓库中不存在密码学解密或密钥管理：所谓“解密”完全依赖 DSM 透明加密驱动对白名单
-进程返回明文；写入同理，必须借白名单 PowerShell 完成，否则内容可能被重新加密或被拦截。
+进程返回明文；写入同理，必须借 PowerShell 完成，否则内容可能被重新加密或被拦截。
 
 本次新增一个独立、可发布到公共 npm 的 CLI 包 `jsdsm`：
 
 ```bash
-npx jsdsm "<文件路径>"             # 输出到源文件所在目录
-npx jsdsm "<文件路径>" "<输出目录>"   # 输出到指定目录
+npx @pxsemic/jsdsm "<文件路径>"             # 输出到源文件所在目录
+npx @pxsemic/jsdsm "<文件路径>" "<输出目录>"   # 输出到指定目录
 ```
 
 已确认的产品决策：
 
 - 仅支持单个文件（MVP 不做目录批量）。
-- **读取**：当前 Node 进程直接 `fs` 读取（该 Node 必须在 DSM 白名单内）。
-- **写入**：按现有 local-unlock 方案，明文经 stdin 交给 PowerShell 写临时文件；
-  PowerShell 必须在 DSM 白名单内。
+- **读取**：当前 Node 进程直接 `fs` 读取。
+- **写入**：按现有 local-unlock 方案，明文经 stdin 交给 PowerShell 写临时文件。
 - 默认输出目录 = 源文件所在目录；目录不存在时递归创建。
 - 同名目标自动改名（`a.txt` → `a (1).txt`），绝不覆盖。
 - 不做“是否真正解出明文”的校验（用户明确选择）。
-- 公共 npm 包，包名 `jsdsm`（当前未被占用），MIT，`engines.node >= 18`。
+- 公共 npm 包，包名 `@pxsemic/jsdsm`（命令名 `jsdsm`），MIT，`engines.node >= 18`。
 - 不读取/不存储任何密钥。
 
 ## 关键取舍
@@ -42,7 +41,7 @@ npx jsdsm "<文件路径>" "<输出目录>"   # 输出到指定目录
 - **不复用 `PowerShellWriter` 类与 `@dsm/core` / `@dsm/desktop-runtime`**：两包均为
   `private`，`PowerShellWriter` 还依赖 Logger、DsmError 等；发布包直接打包这些源码
   会带入无关模块。CLI 实现一个精简的 PowerShell 启动/解析层（约 200 行），行为与
-  `powershell-writer.ts` 对齐：配置 → `POWERSHELL_PATH` → 自动探测；不可用时明确报错。
+  `powershell-writer.ts` 对齐：配置 → `JSDSM_WRITER_PATH` → 自动探测；不可用时明确报错。
 - 构建用 esbuild 打单文件 ESM；仓库已锁定 esbuild **0.28.2**，`allowBuilds` 已放行。
 - 版本从 `0.1.0` 开始；首次发布不建 CHANGELOG。
 
@@ -50,15 +49,15 @@ npx jsdsm "<文件路径>" "<输出目录>"   # 输出到指定目录
 
 ```text
 apps/jsdsm/
-├── package.json          # name=jsdsm, bin, files(含 resources), MIT, engines>=18
+├── package.json          # name=@pxsemic/jsdsm, bin, files(仅 dist), MIT, engines>=18
 ├── tsconfig.json         # noEmit typecheck；ES2022 + types node
-├── .gitignore            # dist/、resources/、*.tgz、node_modules/
+├── .gitignore            # dist/、*.tgz、node_modules/
 ├── .oxlintrc.json        # 与现有 app 一致
 ├── .oxfmtrc.json         # 与现有 app 一致
 ├── LICENSE               # MIT，Copyright (c) 2026 DSM Tool
-├── README.md             # 用法、Node/PowerShell 白名单前提、风险、Windows 示例
+├── README.md             # 用法、写入前提、风险、Windows 示例
 ├── scripts/build.mjs     # esbuild 打包 + 复制 writer helper + chmod 755
-├── resources/            # 构建时从仓库根 resources/ 复制，不提交
+├── dist/resources/       # 构建时从仓库根 resources/ 复制，不提交
 │   └── dsm-file-writer.ps1
 └── src/
     ├── bin.ts            # 可执行入口：信号处理、调用 runCli、设置 exitCode
@@ -73,7 +72,7 @@ apps/jsdsm/
     └── index.ts          # 仅供根测试导入的 barrel
 ```
 
-`dist/` 与 `resources/` 为构建产物，不提交。
+`dist/`（含 `dist/resources/`）为构建产物，不提交。
 
 ## 实现要点
 
@@ -85,11 +84,11 @@ apps/jsdsm/
 {
   "name": "jsdsm",
   "version": "0.1.0",
-  "description": "从 DSM 透明加密目录读取文件明文，并通过白名单 PowerShell 保存到本地目录",
+  "description": "从 DSM 透明加密目录读取文件明文，并通过 PowerShell 保存到本地目录",
   "type": "module",
   "bin": { "jsdsm": "dist/cli.js" },
   "exports": { "./package.json": "./package.json" },
-  "files": ["dist", "resources", "README.md", "LICENSE"],
+  "files": ["dist", "README.md", "LICENSE"],
   "engines": { "node": ">=18" },
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/mackxu/dsm.git", "directory": "apps/jsdsm" },
@@ -113,15 +112,16 @@ apps/jsdsm/
 
 `scripts/build.mjs`：
 
-1. 清空 `dist/` 与 `resources/`；
-2. 复制仓库根 `../../resources/dsm-file-writer.ps1` 到 `apps/jsdsm/resources/`；
+1. 清空 `dist/`；
+2. 复制仓库根 `../../resources/dsm-file-writer.ps1` 到
+   `apps/jsdsm/dist/resources/`；
 3. esbuild：`entryPoints: src/bin.ts`、`bundle`、`platform: 'node'`、`format: 'esm'`、
    `target: 'node18'`、`charset: 'utf8'`、`banner` 注入 shebang
    （源码不写 shebang）、`define` 注入 `globalThis.__JSDSM_VERSION__`；
 4. `chmod dist/cli.js 0o755`。
 
 - 无 `dependencies`，dist 只引用 `node:*`；PowerShell helper 作为资源随包发布。
-- `files` 包含构建生成的 `resources/`；npm-packlist 在有 `files` 时优先于
+- `files` 包含构建生成的 `dist/resources/`；npm-packlist 在有 `files` 时优先于
   `.gitignore`，因此不提交也能进 tarball。
 - `tsconfig.json`：`target ES2022`、`module ESNext`、`moduleResolution Bundler`、
   `strict`、`noEmit`、`types: ["node"]`、`include: ["src/**/*.ts"]`。
@@ -131,14 +131,14 @@ apps/jsdsm/
 ```text
 jsdsm <文件路径> [输出目录]
 jsdsm <文件路径> -o <目录> | --out <目录> | --out=<目录>
-jsdsm <文件路径> --powershell-path <pwsh路径>
+jsdsm <文件路径> --writer-path <写入组件路径>
 jsdsm <文件路径> --timeout <秒>
 jsdsm --help|-h | --version|-v
 ```
 
 - `-h/--help`、`-v/--version` 遇到即返回，优先于其他参数。
 - 输出目录只能指定一次：`-o` 重复、`-o` 与第二个位置参数同时出现 → 用法错误。
-- `--powershell-path` 与 `--timeout` 可重复时后者覆盖或报错（建议报错，保持可预期）。
+- `--writer-path` 与 `--timeout` 可重复时后者覆盖或报错（建议报错，保持可预期）。
 - 第三个位置参数、未知选项（`-` 单字符除外）→ 用法错误；`--` 之后全部按位置参数。
 - **不做 `~` 展开、不自行加/去引号**；路径只做 `path.resolve(cwd, arg)`。
 - `--timeout` 默认 600 秒，允许 1–86400；`0` 可表示不超时（可选）。
@@ -148,8 +148,8 @@ jsdsm --help|-h | --version|-v
 
 解析顺序（与 `powershell-writer.ts` 对齐）：
 
-1. `--powershell-path`；
-2. 环境变量 `POWERSHELL_PATH`；
+1. `--writer-path`；
+2. 环境变量 `JSDSM_WRITER_PATH`；
 3. 自动探测：
    - Windows：`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`，
      PATH 中的 `powershell.exe` / `pwsh.exe`；
@@ -161,7 +161,7 @@ jsdsm --help|-h | --version|-v
   `spawn` 使用 `shell: false`、`windowsHide: true`、最小环境变量 + 三个
   `COPY_*` 变量。
 - helper 路径由 `dist/cli.js` 相对定位：
-  `fileURLToPath(new URL('../resources/dsm-file-writer.ps1', import.meta.url))`；
+  `fileURLToPath(new URL('./resources/dsm-file-writer.ps1', import.meta.url))`；
   启动前校验文件存在。
 - 返回会话 `{ stdin, completed, abort }`：
   - `completed` 解析 stdout JSON，校验 `bytes` 为非负安全整数、`sha256` 为 64 位 hex，
@@ -219,33 +219,31 @@ PUBLISH
 - 输出不保留源文件 mode/mtime/ACL；空文件允许复制。
 - `bin.ts` 注册 `SIGINT`/`SIGTERM`：abort PowerShell 子进程与读流，`finally` 清理
   `.part` 与占位文件；退出码 130/143，第二次信号强制退出。
-- 使用默认输出目录（源目录）且成功时，向 stderr 提示：写回 DSM 受控目录可能被重新
-  加密或拦截，建议显式指定输出目录。
+- 运行过程中向 stderr 输出读取、PowerShell 写入、字节进度与校验提示；stdout 只输出
+  最终路径与字节数。
 
 ### 5. 错误映射（中文）
 
 - 源：`ENOENT`、`EACCES/EPERM`、`ELOOP`、非普通文件。
 - 输出目录：`EACCES/EPERM`、`ENOTDIR`、`EROFS`、`ENOSPC/EDQUOT`。
 - PowerShell：`WRITER_UNAVAILABLE`（未安装/路径不可执行/helper 缺失）、
-  `WRITE_FAILED`（脚本错误/超时/被占用/白名单拦截）、`WRITE_VERIFY_FAILED`
+  `WRITE_FAILED`（脚本错误/超时/被占用/写入被拦截）、`WRITE_VERIFY_FAILED`
   （字节数或 SHA-256 不一致）。
 - 发布：`NAME_EXHAUSTED`、rename 的 `EBUSY/EPERM/ENOENT/EXDEV`。
 - 所有面向用户的文本为中文，保留原始 errno/code 便于排查。
 
 ### 6. README 必须显著写明
 
-1. **两个白名单前提**：运行 CLI 的 Node 必须在 DSM 白名单内（否则读到密文）；
-   用于写入的 PowerShell 也必须在白名单内（否则写入被拦截/重新加密）。
-2. `npx` 使用的 Node 路径需确认（`which node` / `where node`）；nvm/Volta/asdf
-   切换可能导致与白名单不一致。
-3. PowerShell 解析顺序、`--powershell-path` / `POWERSHELL_PATH` 用法；
+1. 确认 `npx` 实际使用的 Node（`which node` / `where node`）；nvm/Volta/asdf
+   可能切换 Node 路径。
+2. 写入组件解析顺序、`--writer-path` / `JSDSM_WRITER_PATH` 用法；
    Windows 自带 `powershell.exe`，macOS 需安装 `pwsh`。
-4. **默认写回源目录的风险**：建议显式指定受控范围之外的输出目录。
-5. 不覆盖同名文件，自动改名；输出目录自动创建；不支持目录批量与 stdin。
-6. 写入流程：明文只经过 Node 管道与 PowerShell stdin，不落临时明文文件；
+3. **默认写回源目录的风险**：建议显式指定受控范围之外的输出目录。
+4. 不覆盖同名文件，自动改名；输出目录自动创建；不支持目录批量与 stdin。
+5. 写入流程：明文只经过 Node 管道与 PowerShell stdin，不落临时明文文件；
    失败时清理 `.part`；SIGKILL/断电可能残留 `.jsdsm-*.part`。
-7. 退出码、Node >= 18、无运行时第三方依赖、无网络、不读取密钥、不做明文内容校验。
-8. Windows 引号/反斜杠/中文路径示例；旧 `cmd.exe` 建议 `chcp 65001`。
+6. 退出码、Node >= 18、无运行时第三方依赖、无网络、不读取密钥、不做明文内容校验。
+7. Windows 引号/反斜杠/中文路径示例；旧 `cmd.exe` 建议 `chcp 65001`。
 
 ## 根仓库集成
 
@@ -258,11 +256,12 @@ PUBLISH
 4. 根 `README.md`：目录说明增加 `apps/jsdsm`；新增简短用法章节并链接
    `apps/jsdsm/README.md`。
 5. `pnpm install` 更新 lockfile importer（不新增依赖版本）。
-6. 建议从当前 `feat/local-unlock` 分支另开 `feat/jsdsm-cli`，避免混入未提交改动。
+6. 当前 `feat/local-unlock` 已合并到 `main`；从 `main` 新建 `feat/jsdsm-cli` 分支，
+   避免混入当前未提交改动。
 
 ## 测试计划（根 `tests/unit/`）
 
-- `jsdsm-args.test.ts`：位置参数、`-o/--out/--out=`、`--powershell-path`、
+- `jsdsm-args.test.ts`：位置参数、`-o/--out/--out=`、`--writer-path`、
   `--timeout`、冲突、重复、缺值、未知选项、三个位置参数、空值、`--` 语义、
   help/version 优先级、中文/空格路径原样保留。
 - `jsdsm-naming.test.ts`：普通/无扩展名/点文件/多扩展名/中文空格改名；attempt=0；
@@ -286,7 +285,7 @@ PUBLISH
 
 1. `pnpm install` → `pnpm run check` → `pnpm test`。
 2. `pnpm run build:jsdsm`；检查 `dist/cli.js` 首行 shebang、可执行位，以及
-   `resources/dsm-file-writer.ps1` 已生成。
+   `dist/resources/dsm-file-writer.ps1` 已生成。
 3. 本地冒烟（无 DSM；用 pwsh/powershell 验证写入链路）：
    ```bash
    tmp=$(mktemp -d); printf 'hello\n' > "$tmp/a.txt"
@@ -295,26 +294,26 @@ PUBLISH
    cat "$tmp/out/a.txt" "$tmp/out/a (1).txt"
    node apps/jsdsm/dist/cli.js --help
    ```
-4. `cd apps/jsdsm && npm pack --dry-run`：tarball 含 `dist/`、`resources/`、
-   `README.md`、`LICENSE`、`package.json`；`tar -tzvf` 确认 `dist/cli.js` 可执行位
-   与 `.ps1` 存在。
+4. `cd apps/jsdsm && npm pack --dry-run`：tarball 含 `dist/`（含
+   `dist/resources/`）、`README.md`、`LICENSE`、`package.json`；`tar -tzvf` 确认
+   `dist/cli.js` 可执行位与 `.ps1` 存在。
 5. 以安装形态验证：`npx --yes --package ./jsdsm-0.1.0.tgz jsdsm --help`，或临时前缀
    `npm install --prefix "$tmp" ./jsdsm-0.1.0.tgz` 后运行 `node_modules/.bin/jsdsm`。
 6. Node 18 冒烟：`npx --yes --package=node@18 node apps/jsdsm/dist/cli.js --help`。
 7. 真实 DSM 验收（必须）：
-   - 确认执行 CLI 的 Node 与 PowerShell 都在 DSM 白名单；
+   - 确认 PowerShell 写入链路在 DSM 环境中可用；
    - 解密已知文件，确认输出为明文；
    - 不传目录再执行一次，观察写回源目录是否被重新加密/拦截；
-   - 用一个不在白名单的 PowerShell 路径验证错误提示。
+   - 用一个不可执行的 PowerShell 路径验证错误提示。
 
 ## 发布
 
 ```bash
 npm whoami          # 当前 ENEEDAUTH，需先 npm adduser / npm login
-npm view jsdsm      # 当前 404，发布前再次确认
+npm view @pxsemic/jsdsm      # 发布前确认包名可用
 cd apps/jsdsm && npm publish --access public
-npm view jsdsm version
-npx --yes jsdsm@0.1.0 --help
+npm view @pxsemic/jsdsm version
+npx --yes @pxsemic/jsdsm@0.1.0 --help
 ```
 
 `prepack` 会自动构建；`publishConfig.access` 已设为 public。Git tag 建议
@@ -322,23 +321,24 @@ npx --yes jsdsm@0.1.0 --help
 
 ## 风险
 
-- **Node 或 PowerShell 不在白名单**：读取得到密文 / 写入被拦截；按用户选择不做内容
-  校验，无法自动识别；README 与 `--help` 必须说明，真实 DSM 验收必须覆盖。
+- **运行环境不满足 DSM 读取/写入要求**：可能读到密文或写入被拦截；按用户选择不做
+  内容校验，无法自动识别；真实 DSM 验收必须覆盖。
 - **默认写回源目录**：可能被 DSM 重新加密/拦截；成功时 stderr 提示，README 警告。
 - **PowerShell 依赖**：Windows 自带 5.1 可用；macOS/Linux 需 `pwsh`。脚本使用
   4 参数 `FileStream.Open` 以兼容 Windows PowerShell 5.1。
-- **helper 漂移**：`apps/jsdsm/resources/dsm-file-writer.ps1` 由构建从根
+- **helper 漂移**：`apps/jsdsm/dist/resources/dsm-file-writer.ps1` 由构建从根
   `resources/` 复制；修改写入协议时必须同步更新，计划中已明确单一来源。
 - **Windows rename**：依赖 `MoveFileEx(REPLACE_EXISTING)` 覆盖自建占位文件；杀毒/
   占用可能短暂 `EPERM/EBUSY`，映射中文错误并清理；发布前在 Windows 实测一次。
 - **SIGKILL/断电**：可能残留 `.jsdsm-*.part` 或极短窗口的 0 字节占位文件。
-- **包名抢注**：发布前再次 `npm view jsdsm` 确认。
+- **包名抢注**：发布前再次 `npm view @pxsemic/jsdsm` 确认。
 
 ## 关键文件
 
 - 新建：`apps/jsdsm/package.json`、
   `apps/jsdsm/src/{bin,cli,args,naming,writer,copy,errors}.ts`、
   `apps/jsdsm/scripts/build.mjs`、`apps/jsdsm/README.md`、`apps/jsdsm/LICENSE`
-- 复用/打包：`resources/dsm-file-writer.ps1`（构建时复制到 `apps/jsdsm/resources/`）
+- 复用/打包：`resources/dsm-file-writer.ps1`（构建时复制到
+  `apps/jsdsm/dist/resources/`）
 - 修改：根 `package.json`、`vitest.config.ts`、`tests/tsconfig.json`、根 `README.md`
 - 新增测试：`tests/unit/jsdsm-{args,naming,writer,copy,cli}.test.ts`
